@@ -1,0 +1,18 @@
+@define-color bg-color #000000;
+@define-color fg-color #FFFFFF;
+
+buffer {
+    background: @bg-color;
+    color: @fg-color;
+    font-family: "UbuntuMono Nerd Font";
+    font-size: 20px;
+}
+
+text_window {
+    margin: 0px 10px 0px 10px;
+}
+
+window {
+    background: @bg-color;
+    color: @fg-color;
+}
