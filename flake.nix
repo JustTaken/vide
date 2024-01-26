@@ -14,6 +14,7 @@
         cargo
         gtk4
         pkg-config
+        glib
       ];
     };
   };
