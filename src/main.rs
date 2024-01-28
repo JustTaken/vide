@@ -23,4 +23,3 @@ fn load_style(_: &Application) {
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION
     );
 }
-

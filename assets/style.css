@@ -1,7 +1,7 @@
-@define-color bg-color #000000;
+@define-color bg-color #3C3633;
 @define-color fg-color #FFFFFF;
 
-buffer {
+default {
     background: @bg-color;
     color: @fg-color;
     font-family: "UbuntuMono Nerd Font";
