@@ -78,7 +78,7 @@ impl KeyMap {
             let text = widget.downcast_ref::<Text>().unwrap();
             let content = text.buffer().text();
 
-            if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("update {}", content).to_variant())) {
+            if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("complete {}", content).to_variant())) {
                 println!("Could not query completion")
             }
             true

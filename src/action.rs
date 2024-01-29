@@ -19,7 +19,7 @@ use gtk::{
     ListBox,
     Orientation,
     gio::{ActionEntry, SimpleAction},
-    glib::{VariantTy, variant::Variant},
+    glib::{VariantTy, StaticVariantType, variant::Variant},
 };
 
 pub struct CompletionCommand;
@@ -36,6 +36,7 @@ impl CompletionCommand {
             if let Ok(command) = BufferCommand::name(command.unwrap()) {
                 match command {
                     BufferCommand::Buffer => CompletionCommand::buffer_completion(argument, buffers),
+                    BufferCommand::Edit => CompletionCommand::file_completion(argument),
                     _ => return Err("Command do not accept arguments"),
                 }
             } else {
@@ -46,10 +47,7 @@ impl CompletionCommand {
         };
 
         completion_box.remove_all();
-        let len = if completion_list.len() == 0 {
-            completion_box.set_visible(false);
-            return Err("No completion is possible")
-        } else { completion_list.len() };
+        let len = if completion_list.len() == 0 { return Err("No completion is possible") } else { completion_list.len() };
 
         let completion_list_rest = len % 3;
         let number_of_rows = if completion_list_rest == 0 { (len - completion_list_rest) / 3 } else { (len - completion_list_rest) / 3 + 1 };
@@ -64,6 +62,33 @@ impl CompletionCommand {
             Err("Could not ask to window display new completion")
         } else {
             Ok(())
+        }
+    }
+
+    pub fn complete(action: &SimpleAction, arguments: &str, completion_box: &ListBox) {
+        let state = action.state().unwrap().get::<Vec<i32>>().unwrap();
+        let mut arguments = arguments.split(' ').collect::<Vec<&str>>().into_iter();
+        let rest = state[0] % 3;
+
+        if let Some(row) = completion_box.row_at_index(((state[0] - rest ) / 3) as i32) {
+            let box_widget = row.first_child().unwrap();
+            let mut text_widget = box_widget.first_child().unwrap();
+
+            for _ in 0..rest {
+                if let Some(widget) = text_widget.next_sibling() {
+                    text_widget = widget;
+                }
+            }
+
+            let text = text_widget.downcast_ref::<Text>().unwrap();
+            let _ = arguments.next();
+            let command = arguments.next();
+            let argument = arguments.last();
+
+            let _ = completion_box.activate_action("win.to_statusline", Some(&format!("content {}", text.buffer().text()).to_variant()));
+            let _ = completion_box.activate_action("win.to_completion_list", Some(&"close".to_variant()));
+
+            action.set_state(&vec![0, 0, 0].to_variant());
         }
     }
 
@@ -116,9 +141,11 @@ impl CompletionCommand {
     }
 
     fn command_completion(command: Option<&str>) -> Vec<String> {
+        let command = command.unwrap_or_else(|| "");
         BufferCommand::list_commands()
             .into_iter()
-            .filter(|s| s.contains(command.unwrap_or_else(|| "")))
+            .filter(|s| s.contains(command))
+            .map(|s| s[command.len()..].to_owned())
             .collect::<Vec<String>>()
     }
 
@@ -127,13 +154,42 @@ impl CompletionCommand {
             .iter()
             .map(|b| &b.name[..])
             .filter(|name| name.contains(argument))
-            .map(|s| s.to_string())
+            .map(|s| s[argument.len()..].to_string())
             .collect::<Vec<String>>()
+    }
+
+    fn file_completion(argument: &str) -> Vec<String> {
+        if argument.contains(" ") {
+            return Vec::new();
+        }
+
+        let mut text = argument.split('/').collect::<Vec<&str>>();
+        let last = text.pop().unwrap_or_else(|| "");
+        if text.len() == 0 {
+            text.push(".");
+        }
+        if let Ok(entries) = std::fs::read_dir(text.join("/")) {
+            entries.
+                filter(|e| e.is_ok())
+                    .map(|e| e.unwrap())
+                    .map(|e|
+                        if e.file_type().unwrap().is_dir() {
+                            format!("{}/", e.file_name().into_string().unwrap())
+                        } else {
+                            format!("{}", e.file_name().into_string().unwrap())
+                        }
+                    )
+                    .filter(|e| e.contains(last))
+                    .collect::<Vec<String>>()
+        } else {
+            Vec::new()
+        }
     }
 }
 
 pub enum CommandLineCommand {
     EditBufferName,
+    EditCommandContent,
     Focus,
 }
 
@@ -142,17 +198,19 @@ impl CommandLineCommand {
         match name {
             "edit" => Ok(CommandLineCommand::EditBufferName),
             "focus" => Ok(CommandLineCommand::Focus),
+            "content" => Ok(CommandLineCommand::EditCommandContent),
             _ => Err(()),
         }
     }
 
-    pub fn execute(command: &str, center_box: &gtk::CenterBox) -> Result<(), &'static str> {
-        let text = command.split(' ').collect::<Vec<&str>>();
+    pub fn execute(cmd: &str, center_box: &gtk::CenterBox) -> Result<(), &'static str> {
+        let text = cmd.split(' ').collect::<Vec<&str>>();
 
         if let Ok(command) = CommandLineCommand::name(text[0]) {
             match command {
                 CommandLineCommand::EditBufferName => Function::edit_statusline_buffer_name(text[1], &center_box.center_widget().unwrap()),
                 CommandLineCommand::Focus => Function::focus_command_line(&center_box.start_widget().unwrap()),
+                CommandLineCommand::EditCommandContent=> Ok(Function::edit_command_content(&text[1..], center_box)),
             }
         } else {
             Err("Command not found")
@@ -228,6 +286,18 @@ impl Function {
         if let Err(err) = widget.activate_action("win.to_statusline", Some(&"focus".to_variant())) {
             println!("Error: {}", err);
         }
+    }
+
+    fn edit_command_content(content: &[&str], center_box: &gtk::CenterBox) {
+        let content = content.join(" ");
+        let command_line = center_box.start_widget().unwrap();
+        let text = command_line.downcast_ref::<Text>().unwrap();
+        let len = text.text_length();
+        let content_len = content.len() as usize;
+
+        text.buffer().insert_text(len, &content[..]);
+
+        text.emit_move_cursor(MovementStep::LogicalPositions, content_len as i32, false);
     }
 
     pub fn next_line(widget: &Widget) {
@@ -452,24 +522,13 @@ impl Action {
         Shortcut::builder().trigger(&trigger).action(&action).build()
     }
 
-    pub fn entry<W, F>(name: &str, typ: Cow<'static, VariantTy>, state: i32, function: F) -> ActionEntry<W> where
+    pub fn entry<W, F>(name: &str, typ: Cow<'static, VariantTy>, state: Variant, function: F) -> ActionEntry<W> where
         W: IsA<gtk::Window> + IsA<gtk::gio::ActionMap>,
         F: Fn(&W, &SimpleAction, Option<&Variant>) + 'static {
 
         ActionEntry::builder(name)
             .parameter_type(Some(&typ))
-            .state(state.to_variant())
-            .activate(function)
-            .build()
-    }
-
-    pub fn completion_entry<W, F>(name: &str, typ: Cow<'static, VariantTy>, state: [i32; 3], function: F) -> ActionEntry<W> where
-        W: IsA<gtk::Window> + IsA<gtk::gio::ActionMap>,
-        F: Fn(&W, &SimpleAction, Option<&Variant>) + 'static {
-
-        ActionEntry::builder(name)
-            .parameter_type(Some(&typ))
-            .state(state.to_variant())
+            .state(state)
             .activate(function)
             .build()
     }

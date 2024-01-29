@@ -72,6 +72,7 @@ impl StatusLine {
     fn default() -> StatusLine {
         let command_line = Text::builder()
             .css_name("default")
+            .hexpand(true)
             .focus_on_click(false)
             .build();
         command_line.add_controller(KeyMap::command_line_controller().controller);
@@ -103,14 +104,6 @@ impl StatusLine {
             .visible(false)
             .build();
 
-        // completion_list.connect_row_selected(|list_box, row| {
-        //     if let Some(row) = row {
-        //         let row_box_ref = row.first_child().unwrap();
-        //         let row_box = row_box_ref.downcast_ref::<gtk::Box>().unwrap();
-        //         println!("row_Box: {:?}", row_box);
-        //     }
-        // });
-
         StatusLine {
             content,
             completion_list,
@@ -141,7 +134,7 @@ impl Window {
 
         let buffers: Arc<Mutex<Vec<Buffer>>> = Arc::new(Mutex::new(vec![Buffer {content: None, name: "scratch".to_owned()}]));
         let buffers_to_completion = buffers.clone();
-        window.add_action_entries([Action::entry("to_buffer", String::static_variant_type(), 0, move |window, _, variant| {
+        window.add_action_entries([Action::entry("to_buffer", String::static_variant_type(), 0.to_variant(), move |window, _, variant| {
                 let text_view_ref = gtk::prelude::GtkWindowExt::focus(window).unwrap();
                 let arguments = variant.unwrap().get::<String>().unwrap();
 
@@ -155,7 +148,7 @@ impl Window {
             }
         )]);
 
-        window.add_action_entries([Action::entry("to_statusline", String::static_variant_type(), 0, move |window: &ApplicationWindow, _, variant| {
+        window.add_action_entries([Action::entry("to_statusline", String::static_variant_type(), 0.to_variant(), move |window: &ApplicationWindow, _, variant| {
             let widget_centered_box_ref= window.first_child().unwrap().last_child().unwrap();
             let center_box = widget_centered_box_ref.downcast_ref::<gtk::CenterBox>();
 
@@ -167,7 +160,7 @@ impl Window {
             }
         })]);
 
-        window.add_action_entries([Action::completion_entry("to_completion_list", String::static_variant_type(), [0, 0, 0], move |window: &ApplicationWindow, action, variant| {
+        window.add_action_entries([Action::entry("to_completion_list", String::static_variant_type(), [0, 0, 0].to_variant(), move |window: &ApplicationWindow, action, variant| {
             let widget_centered_box_ref= window.first_child().unwrap().last_child().unwrap();
             let list_box_ref = widget_centered_box_ref.prev_sibling();
 
@@ -180,8 +173,11 @@ impl Window {
                 } else if !list_box.get_visible() {
                     list_box.set_visible(true);
                     if let Err(err) = CompletionCommand::update(action, &arguments[..], list_box, buffers_to_completion.lock().unwrap()) {
-                        println!("Errr: {}", err);
+                        list_box.set_visible(false);
+                        println!("Error: {}", err);
                     }
+                } else if arguments.starts_with("complete") {
+                    CompletionCommand::complete(action, &arguments[..], list_box);
                 } else if arguments.starts_with("display") {
                     CompletionCommand::display(action, list_box);
                 } else if arguments.starts_with("next") {
