@@ -1,4 +1,4 @@
-/target
-/rustup
+target/
+rustup/
 .direnv/
 assets/scratch

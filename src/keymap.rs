@@ -29,11 +29,18 @@ impl KeyMap {
     pub fn command_line_controller() -> KeyMap {
         let cancel_trigger = ShortcutTrigger::parse_string("Escape").unwrap();
         let completion_trigger = ShortcutTrigger::parse_string("Tab").unwrap();
+        let next_completion_trigger = ShortcutTrigger::parse_string("<Control>n").unwrap();
+        let prev_completion_trigger = ShortcutTrigger::parse_string("<Control>p").unwrap();
         let cancel_completion_trigger = ShortcutTrigger::parse_string("<Control>g").unwrap();
         let cancel_action = CallbackAction::new(|widget, _| {
             let text = widget.downcast_ref::<Text>().unwrap();
             text.buffer().delete_text(0, None);
             text.emit_move_focus(gtk::DirectionType::TabBackward);
+
+            if let Err(_) = widget.activate_action("win.to_completion_list", Some(&"close".to_variant())) {
+                println!("Error: Could not close completion list");
+            }
+
             true
         });
 
@@ -45,12 +52,34 @@ impl KeyMap {
             true
         });
 
+        let prev_completion_action = CallbackAction::new(|widget, _| {
+            let text = widget.downcast_ref::<Text>().unwrap();
+            let content = text.buffer().text();
+
+            if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("prev {}", content).to_variant())) {
+                println!("Error: Could not get next completion element");
+            }
+
+            true
+        });
+
+        let next_completion_action = CallbackAction::new(|widget, _| {
+            let text = widget.downcast_ref::<Text>().unwrap();
+            let content = text.buffer().text();
+
+            if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("next {}", content).to_variant())) {
+                println!("Error: Could not get next completion element");
+            }
+
+            true
+        });
+
         let completion_action = CallbackAction::new(|widget, _| {
             let text = widget.downcast_ref::<Text>().unwrap();
             let content = text.buffer().text();
 
-            if let Err(err) = Function::query_completion(&content.to_string()[..], &text) {
-                println!("Error: {}", err);
+            if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("update {}", content).to_variant())) {
+                println!("Could not query completion")
             }
             true
         });
@@ -58,11 +87,15 @@ impl KeyMap {
         let escape = Shortcut::builder().trigger(&cancel_trigger).action(&cancel_action).build();
         let complete = Shortcut::builder().trigger(&completion_trigger).action(&completion_action).build();
         let cancel_completion = Shortcut::builder().trigger(&cancel_completion_trigger).action(&cancel_completion_action).build();
+        let next_completion = Shortcut::builder().trigger(&next_completion_trigger).action(&next_completion_action).build();
+        let prev_completion = Shortcut::builder().trigger(&prev_completion_trigger).action(&prev_completion_action).build();
 
         let controller = ShortcutController::new();
         controller.add_shortcut(escape);
         controller.add_shortcut(complete);
         controller.add_shortcut(cancel_completion);
+        controller.add_shortcut(next_completion);
+        controller.add_shortcut(prev_completion);
         controller.add_shortcut(KeyMap::disable_keys_shortcut("<Control>semicolon|<Control>period"));
 
         KeyMap {

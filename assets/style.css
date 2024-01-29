@@ -1,11 +1,23 @@
 @define-color bg-color #3C3633;
+@define-color bg-selected #000000;
+@define-color bg-on #EEEEEE;
 @define-color fg-color #FFFFFF;
 
 default {
     background: @bg-color;
     color: @fg-color;
     font-family: "UbuntuMono Nerd Font";
-    font-size: 22px;
+    font-size: 30px;
+}
+
+completion {
+    color: @fg-color;
+    font-family: "UbuntuMono Nerd Font";
+    font-size: 30px;
+}
+
+completion.on {
+    background: @bg-on;
 }
 
 text_window {

@@ -18,94 +18,117 @@ use gtk::{
     Text,
     ListBox,
     Orientation,
-    gio::{ActionEntry, SimpleAction, ListStore},
+    gio::{ActionEntry, SimpleAction},
     glib::{VariantTy, variant::Variant},
 };
 
-pub enum CompletionCommand {
-    Show,
-    Complete,
-}
+pub struct CompletionCommand;
 
 impl CompletionCommand {
-    fn name(name: &str) -> Result<CompletionCommand, &'static str>{
-        match name {
-            "show" => Ok(CompletionCommand::Show),
-            "complete" => Ok(CompletionCommand::Complete),
-            _ => Err("Command does not exist")
+    pub fn update<'a>(action: &SimpleAction, content: &str, completion_box: &ListBox, buffers: MutexGuard<'_, Vec<Buffer>>) -> Result<(), &'static str> {
+        let mut iter = content.split(' ').collect::<Vec<&str>>().into_iter();
+
+        let _ = iter.next();
+        let command = iter.next();
+        let argument = iter.last();
+
+        let completion_list = if let Some(argument) = argument {
+            if let Ok(command) = BufferCommand::name(command.unwrap()) {
+                match command {
+                    BufferCommand::Buffer => CompletionCommand::buffer_completion(argument, buffers),
+                    _ => return Err("Command do not accept arguments"),
+                }
+            } else {
+                return Err("Invalid command");
+            }
+        } else {
+            CompletionCommand::command_completion(command)
+        };
+
+        completion_box.remove_all();
+        let len = if completion_list.len() == 0 {
+            completion_box.set_visible(false);
+            return Err("No completion is possible")
+        } else { completion_list.len() };
+
+        let completion_list_rest = len % 3;
+        let number_of_rows = if completion_list_rest == 0 { (len - completion_list_rest) / 3 } else { (len - completion_list_rest) / 3 + 1 };
+        let boxes = (0..number_of_rows).map(|_| gtk::Box::builder().orientation(Orientation::Horizontal).build()).collect::<Vec<gtk::Box>>();
+
+        completion_list.iter().enumerate().for_each(|(i, c)| boxes[(i - i % 3) / 3].append(&Text::builder().css_name("completion").hexpand(true).buffer(&EntryBuffer::new(Some(c))).build()));
+        boxes.iter().for_each(|row| completion_box.append(row));
+
+        let state = action.state().unwrap().get::<Vec<i32>>().unwrap();
+        action.set_state(&vec![state[0], state[1], len as i32].to_variant());
+        if let Err(_) = completion_box.activate_action("win.to_completion_list", Some(&"display".to_variant())) {
+            Err("Could not ask to window display new completion")
+        } else {
+            Ok(())
         }
     }
-    pub fn execute<'a>(content: &str, list_completion: &ListBox, buffers: MutexGuard<'_, Vec<Buffer>>) -> Result<(), &'static str> {
-        let mut iter = content.split(' ').collect::<Vec<&str>>().into_iter();
-        match CompletionCommand::name(iter.next().unwrap())? {
-            CompletionCommand::Show => {
-                let command = iter.next();
-                let argument = iter.last();
 
-                if let Some(argument) = argument {
-                    if let Ok(command) = BufferCommand::name(command.unwrap()) {
-                        match command {
-                            BufferCommand::Buffer => {
-                                let mut boxes: Vec<gtk::Box> = Vec::new();
-                                let argument_list = buffers
-                                    .iter()
-                                    .map(|b| &b.name[..])
-                                    .filter(|name| name.contains(argument))
-                                    .map(|s| s.to_string())
-                                    .collect::<Vec<String>>();
+    pub fn display(action: &SimpleAction, completion_box: &ListBox) {
+        let state = action.state().unwrap().get::<Vec<i32>>().unwrap();
+        let len = state[2] as usize;
 
-                                for i in 0..argument_list.len() {
-                                    if i % 3 == 0 {
-                                        boxes.push(gtk::Box::builder().orientation(Orientation::Horizontal).build());
-                                    }
+        let prev_index = state[1] as usize % len;
+        let prev_rest = prev_index % 3;
+        let prev_index_module = (prev_index - prev_rest) / 3;
 
-                                    boxes
-                                        .last_mut()
-                                        .unwrap()
-                                        .append(
-                                            &Text::builder()
-                                            .css_name("buffer")
-                                            .buffer(&EntryBuffer::new(Some(&argument_list[i][..])))
-                                            .build()
-                                        );
-                                }
+        let index = state[0] as usize % len;
+        let rest = index % 3;
+        let index_module = (index - rest) / 3;
 
-                                list_completion.remove_all();
-                                for row in boxes.iter() {
-                                    list_completion.append(row);
-                                }
-                            }
-                            _ => return Err("Command do not accept arguments"),
-                        }
-                    } else {
-                        return Err("Invalid command")
-                    }
-                } else {
-                    let mut boxes: Vec<gtk::Box> = Vec::new();
-                    let command = command.unwrap_or_else(|| "");
-                    let command_list = BufferCommand::list_commands()
-                        .into_iter()
-                        .filter(|s| s.contains(command))
-                        .collect::<Vec<String>>();
-
-                    for i in 0..command_list.len() {
-                        if i % 3 == 0 {
-                            boxes.push(gtk::Box::builder().orientation(Orientation::Horizontal).build());
-                        }
-
-                        boxes.last_mut().unwrap().append(&Text::builder().css_name("buffer").buffer(&EntryBuffer::new(Some(&command_list[i][..]))).build());
-                    }
-
-                    list_completion.remove_all();
-                    for row in boxes.iter() {
-                        list_completion.append(row);
-                    }
+        if let Some(row) = completion_box.row_at_index(index_module as i32) {
+            let row_box_widget = row.first_child().unwrap();
+            let mut text_widget = row_box_widget.first_child().unwrap();
+            for _ in 0..rest {
+                if let Some(widget) = text_widget.next_sibling() {
+                    text_widget = widget;
                 }
-                list_completion.set_visible(true);
-                Ok(())
-            },
-            CompletionCommand::Complete => {Err("Not implemented")},
+            }
+
+            let prev_row = completion_box.row_at_index(prev_index_module as i32).unwrap();
+            let row_box_widget = prev_row.first_child().unwrap();
+            let mut prev_text_widget = row_box_widget.first_child().unwrap();
+
+            for _ in 0..prev_rest {
+                if let Some(widget) = prev_text_widget.next_sibling() {
+                    prev_text_widget = widget;
+                }
+            }
+            prev_text_widget.remove_css_class("on");
+            text_widget.set_css_classes(&["on"]);
         }
+    }
+
+    pub fn change_index(factor: i32, action: &SimpleAction, completion_box: &ListBox) {
+        let state = action.state().unwrap().get::<Vec<i32>>().unwrap();
+        let mut index = (state[0] + factor) % state[2];
+        if index < 0 {
+            index = state[2] - 1;
+        }
+
+        action.set_state(&vec![index, state[0], state[2]].to_variant());
+        if let Err(_) = completion_box.activate_action("win.to_completion_list", Some(&"display".to_variant())) {
+            println!("Could not ask to window display new completion")
+        }
+    }
+
+    fn command_completion(command: Option<&str>) -> Vec<String> {
+        BufferCommand::list_commands()
+            .into_iter()
+            .filter(|s| s.contains(command.unwrap_or_else(|| "")))
+            .collect::<Vec<String>>()
+    }
+
+    fn buffer_completion(argument: &str, buffers: MutexGuard<'_, Vec<Buffer>>) -> Vec<String> {
+        buffers
+            .iter()
+            .map(|b| &b.name[..])
+            .filter(|name| name.contains(argument))
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
     }
 }
 
@@ -140,7 +163,6 @@ impl CommandLineCommand {
 pub enum BufferCommand {
     Edit,
     Buffer,
-    List,
 }
 
 impl BufferCommand {
@@ -148,7 +170,6 @@ impl BufferCommand {
         match self {
             BufferCommand::Edit => 1,
             BufferCommand::Buffer => 1,
-            BufferCommand::List => 0,
         }
     }
 
@@ -156,7 +177,6 @@ impl BufferCommand {
         match name {
             "edit" => Ok(BufferCommand::Edit),
             "buffer" => Ok(BufferCommand::Buffer),
-            "list" => Ok(BufferCommand::List),
             _ => Err(()),
         }
     }
@@ -165,14 +185,13 @@ impl BufferCommand {
         vec![
             "edit".to_owned(),
             "buffer".to_owned(),
-            "list".to_owned(),
         ]
     }
 
     pub fn validate(command: &str) -> Result<(), &'static str> {
         let mut text = command.split(' ').collect::<Vec<&str>>().into_iter();
         if let Some(command) = text.next() {
-            if let Ok(command) = BufferCommand::name(command) {
+            if let Ok(_) = BufferCommand::name(command) {
                 Ok(())
             } else {
                 Err("Command not found")
@@ -189,7 +208,6 @@ impl BufferCommand {
                 match command {
                     BufferCommand::Edit => Function::open_file(argument, text_view, buffers),
                     BufferCommand::Buffer => Function::open_buffer(argument, text_view, buffers),
-                    BufferCommand::List => Function::list_buffers(buffers),
                 }
             } else if command.arguments_count() != 0 {
                 Err("Not enough arguments")
@@ -272,13 +290,6 @@ impl Function {
         text_view.emit_move_cursor(MovementStep::Pages, -1, false);
     }
 
-    fn list_buffers(buffers: MutexGuard<'_, Vec<Buffer>>) -> Result<(), &'static str> {
-        for i in 0..buffers.len() {
-            println!("{:?}", buffers[i]);
-        }
-        Ok(())
-    }
-
     fn open_buffer(buffer_name: &str, text_view: &TextView, mut buffers: MutexGuard<'_, Vec<Buffer>>) -> Result<(), &'static str> {
         let mut current_buffer_index: Option<usize> = None;
         let mut next_buffer_index: Option<usize> = None;
@@ -355,30 +366,6 @@ impl Function {
             Err("Could not get center widget")
         }
    }
-
-
-    pub fn query_completion(content: &str, widget: &Text) -> Result<(), &'static str> {
-        if let Err(_) = widget.activate_action("win.to_completion_list", Some(&content.to_variant())) {
-            Err("Could not query completion")
-        } else {
-            Ok(())
-        }
-    }
-}
-
-enum Completion {
-    Command,
-    Argument,
-}
-
-impl Completion {
-    fn new(typ: &str) -> Result<Completion, ()> {
-        match typ {
-            "command" => Ok(Completion::Command),
-            "arg" => Ok(Completion::Argument),
-            _ => Err(()),
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Debug, Copy)]
@@ -465,12 +452,24 @@ impl Action {
         Shortcut::builder().trigger(&trigger).action(&action).build()
     }
 
-    pub fn entry<W, F>(name: &str, typ: Cow<'static, VariantTy>, function: F) -> ActionEntry<W> where
+    pub fn entry<W, F>(name: &str, typ: Cow<'static, VariantTy>, state: i32, function: F) -> ActionEntry<W> where
         W: IsA<gtk::Window> + IsA<gtk::gio::ActionMap>,
         F: Fn(&W, &SimpleAction, Option<&Variant>) + 'static {
 
         ActionEntry::builder(name)
             .parameter_type(Some(&typ))
+            .state(state.to_variant())
+            .activate(function)
+            .build()
+    }
+
+    pub fn completion_entry<W, F>(name: &str, typ: Cow<'static, VariantTy>, state: [i32; 3], function: F) -> ActionEntry<W> where
+        W: IsA<gtk::Window> + IsA<gtk::gio::ActionMap>,
+        F: Fn(&W, &SimpleAction, Option<&Variant>) + 'static {
+
+        ActionEntry::builder(name)
+            .parameter_type(Some(&typ))
+            .state(state.to_variant())
             .activate(function)
             .build()
     }
