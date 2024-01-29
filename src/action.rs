@@ -476,7 +476,7 @@ impl BufferCommand {
 }
 
 #[derive(Clone, PartialEq, Debug, Copy)]
-pub enum Binding {
+pub enum Bind {
     Esc,
     ControlX,
     ControlColon,
@@ -501,28 +501,28 @@ pub enum Binding {
     Tab,
 }
 
-impl Binding {
+impl Bind {
     pub fn to_string<'a>(&'a self) -> &'a str{
         match self {
-            Binding::Esc => "Escape",
-            Binding::Tab => "Tab",
+            Bind::Esc => "Escape",
+            Bind::Tab => "Tab",
 
-            Binding::ControlX => "<Control>x",
-            Binding::ControlN => "<Control>n",
-            Binding::ControlP => "<Control>p",
-            Binding::ControlA => "<Control>a",
-            Binding::ControlE => "<Control>e",
-            Binding::ControlF => "<Control>f",
-            Binding::ControlB => "<Control>b",
-            Binding::ControlV => "<Control>v",
-            Binding::ControlG => "<Control>g",
-            Binding::ControlColon => "<Control>colon",
+            Bind::ControlX => "<Control>x",
+            Bind::ControlN => "<Control>n",
+            Bind::ControlP => "<Control>p",
+            Bind::ControlA => "<Control>a",
+            Bind::ControlE => "<Control>e",
+            Bind::ControlF => "<Control>f",
+            Bind::ControlB => "<Control>b",
+            Bind::ControlV => "<Control>v",
+            Bind::ControlG => "<Control>g",
+            Bind::ControlColon => "<Control>colon",
 
-            Binding::AltV => "<Alt>v",
-            Binding::AltF => "<Alt>f",
-            Binding::AltB => "<Alt>b",
-            Binding::AltLess => "<Alt>less",
-            Binding::AltGreater => "<Alt>greater",
+            Bind::AltV => "<Alt>v",
+            Bind::AltF => "<Alt>f",
+            Bind::AltB => "<Alt>b",
+            Bind::AltLess => "<Alt>less",
+            Bind::AltGreater => "<Alt>greater",
 
         }
     }
@@ -531,7 +531,7 @@ impl Binding {
 pub struct Action;
 
 impl Action {
-    pub fn key_base(bindings: Arc<Mutex<Vec<Binding>>>, binding: Binding, base: Vec<Binding>) -> Shortcut {
+    pub fn key_base(bindings: Arc<Mutex<Vec<Bind>>>, binding: Bind, base: Vec<Bind>) -> Shortcut {
         let trigger = ShortcutTrigger::parse_string(binding.to_string()).unwrap();
         let action = CallbackAction::new(move |_, _| {
             let mut flag = false;
@@ -548,18 +548,23 @@ impl Action {
         Shortcut::builder().trigger(&trigger).action(&action).build()
     }
 
-    pub fn key_final<F: Fn(&Widget) + 'static>(bindings: Arc<Mutex<Vec<Binding>>>, binding: Binding, base: Vec<Binding>, function: F) -> Shortcut {
+    pub fn key_final<F: Fn(&Widget) + 'static>(bindings: Option<Arc<Mutex<Vec<Bind>>>>, binding: Bind, base: Vec<Bind>, function: F) -> Shortcut {
         let trigger = ShortcutTrigger::parse_string(binding.to_string()).unwrap();
         let action = CallbackAction::new(move |widget, _| {
-            if let std::sync::LockResult::Ok(mut bindings) = bindings.lock() {
-                if bindings.eq(&base) {
-                    function(&widget);
-                }
+            if let Some(bindings) = &bindings {
+                if let std::sync::LockResult::Ok(mut bindings) = bindings.lock() {
+                    if bindings.eq(&base) {
+                        function(&widget);
+                    }
 
-                bindings.clear();
-                true
+                    bindings.clear();
+                    true
+                } else {
+                    false
+                }
             } else {
-                false
+                function(&widget);
+                true
             }
         });
 
