@@ -1,5 +1,4 @@
 use crate::window::Buffer;
-
 use std::{
     sync::{Arc, Mutex, MutexGuard},
     borrow::Cow,
@@ -19,7 +18,7 @@ use gtk::{
     ListBox,
     Orientation,
     gio::{ActionEntry, SimpleAction},
-    glib::{VariantTy, StaticVariantType, variant::Variant},
+    glib::{VariantTy, variant::Variant},
 };
 
 pub struct CompletionCommand;
@@ -37,7 +36,6 @@ impl CompletionCommand {
                 match command {
                     BufferCommand::Buffer => CompletionCommand::buffer_completion(argument, buffers),
                     BufferCommand::Edit => CompletionCommand::file_completion(argument),
-                    _ => return Err("Command do not accept arguments"),
                 }
             } else {
                 return Err("Invalid command");
@@ -65,9 +63,8 @@ impl CompletionCommand {
         }
     }
 
-    pub fn complete(action: &SimpleAction, arguments: &str, completion_box: &ListBox) {
+    pub fn complete(action: &SimpleAction, completion_box: &ListBox) {
         let state = action.state().unwrap().get::<Vec<i32>>().unwrap();
-        let mut arguments = arguments.split(' ').collect::<Vec<&str>>().into_iter();
         let rest = state[0] % 3;
 
         if let Some(row) = completion_box.row_at_index(((state[0] - rest ) / 3) as i32) {
@@ -81,14 +78,8 @@ impl CompletionCommand {
             }
 
             let text = text_widget.downcast_ref::<Text>().unwrap();
-            let _ = arguments.next();
-            let command = arguments.next();
-            let argument = arguments.last();
-
             let _ = completion_box.activate_action("win.to_statusline", Some(&format!("content {}", text.buffer().text()).to_variant()));
             let _ = completion_box.activate_action("win.to_completion_list", Some(&"close".to_variant()));
-
-            action.set_state(&vec![0, 0, 0].to_variant());
         }
     }
 
@@ -171,15 +162,18 @@ impl CompletionCommand {
         if let Ok(entries) = std::fs::read_dir(text.join("/")) {
             entries.
                 filter(|e| e.is_ok())
-                    .map(|e| e.unwrap())
-                    .map(|e|
-                        if e.file_type().unwrap().is_dir() {
-                            format!("{}/", e.file_name().into_string().unwrap())
-                        } else {
-                            format!("{}", e.file_name().into_string().unwrap())
+                    .map(|e| {
+                            let e = e.unwrap();
+                            if e.file_type().unwrap().is_dir() {
+                                format!("{}/", e.file_name().into_string().unwrap())
+                            } else {
+                                format!("{}", e.file_name().into_string().unwrap())
+                            }
                         }
                     )
                     .filter(|e| e.contains(last))
+                    .map(|e| e[last.len()..].to_owned())
+                    .filter(|e| e != "")
                     .collect::<Vec<String>>()
         } else {
             Vec::new()
@@ -208,12 +202,94 @@ impl CommandLineCommand {
 
         if let Ok(command) = CommandLineCommand::name(text[0]) {
             match command {
-                CommandLineCommand::EditBufferName => Function::edit_statusline_buffer_name(text[1], &center_box.center_widget().unwrap()),
-                CommandLineCommand::Focus => Function::focus_command_line(&center_box.start_widget().unwrap()),
-                CommandLineCommand::EditCommandContent=> Ok(Function::edit_command_content(&text[1..], center_box)),
+                CommandLineCommand::EditBufferName => CommandLineCommand::edit_buffer_name(text[1], &center_box.center_widget().unwrap()),
+                CommandLineCommand::Focus => CommandLineCommand::focus(&center_box.start_widget().unwrap()),
+                CommandLineCommand::EditCommandContent=> CommandLineCommand::edit_content(&text[1..], center_box),
             }
         } else {
             Err("Command not found")
+        }
+    }
+
+   fn edit_buffer_name(name: &str, center_widget: &Widget) -> Result<(), &'static str> {
+        let center_widget = center_widget.downcast_ref::<Text>();
+
+        if let Some(center_widget) = center_widget {
+            center_widget.set_buffer(&EntryBuffer::new(Some(name)));
+            Ok(())
+        } else {
+            Err("Could not get center widget")
+        }
+   }
+
+    fn edit_content(content: &[&str], center_box: &gtk::CenterBox) -> Result<(), &'static str> {
+        let content = content.join(" ");
+        if let Some(command_line) = center_box.start_widget() {
+            if let Some(text) = command_line.downcast_ref::<Text>() {
+                let len = text.text_length();
+                let content_len = content.len() as usize;
+                text.buffer().insert_text(len, &content[..]);
+                text.emit_move_cursor(MovementStep::LogicalPositions, content_len as i32, false);
+                Ok(())
+            } else {
+                Err("Could not cast command line to Text widget")
+            }
+        } else {
+            Err("Could not get command line widget")
+        }
+
+    }
+
+   fn focus(command_line_widget: &Widget) -> Result<(), &'static str> {
+       command_line_widget.grab_focus();
+       Ok(())
+   }
+
+    pub fn open(widget: &Widget) {
+        if let Err(err) = widget.activate_action("win.to_statusline", Some(&"focus".to_variant())) {
+            println!("Error: {}", err);
+        }
+    }
+
+    pub fn close_completion(widget: &Widget) {
+        if let Err(_) = widget.activate_action("win.to_completion_list", Some(&"close".to_variant())) {
+            println!("Error: Could not close completion list");
+        }
+    }
+
+    pub fn prev_completion(widget: &Widget) {
+        let text = widget.downcast_ref::<Text>().unwrap();
+        let content = text.buffer().text();
+
+        if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("prev {}", content).to_variant())) {
+            println!("Error: Could not get next completion element");
+        }
+    }
+
+    pub fn next_completion(widget: &Widget) {
+        let text = widget.downcast_ref::<Text>().unwrap();
+        let content = text.buffer().text();
+
+        if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("next {}", content).to_variant())) {
+            println!("Error: Could not get next completion element");
+        }
+    }
+
+    pub fn complete(widget: &Widget) {
+        let text = widget.downcast_ref::<Text>().unwrap();
+        let content = text.buffer().text();
+
+        if let Err(_) = widget.activate_action("win.to_completion_list", Some(&format!("complete {}", content).to_variant())) {
+            println!("Could not query completion")
+        }
+    }
+    pub fn close(widget: &Widget) {
+        let text = widget.downcast_ref::<Text>().unwrap();
+        text.buffer().delete_text(0, None);
+        text.emit_move_focus(gtk::DirectionType::TabBackward);
+
+        if let Err(_) = widget.activate_action("win.to_completion_list", Some(&"close".to_variant())) {
+            println!("Error: Could not close completion list");
         }
     }
 }
@@ -264,8 +340,8 @@ impl BufferCommand {
         if let Ok(command) = BufferCommand::name(text.next().unwrap()) {
             if let Some(argument) = text.next() {
                 match command {
-                    BufferCommand::Edit => Function::open_file(argument, text_view, buffers),
-                    BufferCommand::Buffer => Function::open_buffer(argument, text_view, buffers),
+                    BufferCommand::Edit => BufferCommand::open_file(argument, text_view, buffers),
+                    BufferCommand::Buffer => BufferCommand::open_buffer(argument, text_view, buffers),
                 }
             } else if command.arguments_count() != 0 {
                 Err("Not enough arguments")
@@ -275,29 +351,6 @@ impl BufferCommand {
         } else {
             Err("Command not found")
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct Function;
-
-impl Function {
-    pub fn open_command(widget: &Widget) {
-        if let Err(err) = widget.activate_action("win.to_statusline", Some(&"focus".to_variant())) {
-            println!("Error: {}", err);
-        }
-    }
-
-    fn edit_command_content(content: &[&str], center_box: &gtk::CenterBox) {
-        let content = content.join(" ");
-        let command_line = center_box.start_widget().unwrap();
-        let text = command_line.downcast_ref::<Text>().unwrap();
-        let len = text.text_length();
-        let content_len = content.len() as usize;
-
-        text.buffer().insert_text(len, &content[..]);
-
-        text.emit_move_cursor(MovementStep::LogicalPositions, content_len as i32, false);
     }
 
     pub fn next_line(widget: &Widget) {
@@ -420,26 +473,11 @@ impl Function {
             Err("Could not read the file")
         }
    }
-
-   fn focus_command_line(command_line_widget: &Widget) -> Result<(), &'static str> {
-       command_line_widget.grab_focus();
-       Ok(())
-   }
-
-   fn edit_statusline_buffer_name(name: &str, center_widget: &Widget) -> Result<(), &'static str> {
-        let center_widget = center_widget.downcast_ref::<Text>();
-
-        if let Some(center_widget) = center_widget {
-            center_widget.set_buffer(&EntryBuffer::new(Some(name)));
-            Ok(())
-        } else {
-            Err("Could not get center widget")
-        }
-   }
 }
 
 #[derive(Clone, PartialEq, Debug, Copy)]
 pub enum Binding {
+    Esc,
     ControlX,
     ControlColon,
 
@@ -451,6 +489,7 @@ pub enum Binding {
     ControlF,
     ControlB,
     ControlV,
+    ControlG,
 
     AltV,
     AltF,
@@ -458,28 +497,33 @@ pub enum Binding {
 
     AltGreater,
     AltLess,
+
+    Tab,
 }
 
 impl Binding {
     pub fn to_string<'a>(&'a self) -> &'a str{
         match self {
+            Binding::Esc => "Escape",
+            Binding::Tab => "Tab",
+
             Binding::ControlX => "<Control>x",
-            Binding::ControlColon => "<Control>colon",
             Binding::ControlN => "<Control>n",
             Binding::ControlP => "<Control>p",
             Binding::ControlA => "<Control>a",
             Binding::ControlE => "<Control>e",
-
             Binding::ControlF => "<Control>f",
             Binding::ControlB => "<Control>b",
             Binding::ControlV => "<Control>v",
+            Binding::ControlG => "<Control>g",
+            Binding::ControlColon => "<Control>colon",
 
             Binding::AltV => "<Alt>v",
             Binding::AltF => "<Alt>f",
             Binding::AltB => "<Alt>b",
-
-            Binding::AltGreater => "<Alt>greater",
             Binding::AltLess => "<Alt>less",
+            Binding::AltGreater => "<Alt>greater",
+
         }
     }
 }

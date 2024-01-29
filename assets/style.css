@@ -7,13 +7,13 @@ default {
     background: @bg-color;
     color: @fg-color;
     font-family: "UbuntuMono Nerd Font";
-    font-size: 30px;
+    font-size: 20px;
 }
 
 completion {
     color: @fg-color;
     font-family: "UbuntuMono Nerd Font";
-    font-size: 30px;
+    font-size: 20px;
 }
 
 completion.on {

@@ -1,3 +1,4 @@
+use std::sync::{Arc, Mutex};
 use crate::{
     keymap::KeyMap,
     action::{
@@ -7,8 +8,6 @@ use crate::{
         CompletionCommand
     },
 };
-
-use std::sync::{Arc, Mutex};
 
 use gtk::{
     prelude::*,
@@ -128,7 +127,7 @@ impl Window {
             .application(app)
             .default_width(600)
             .default_height(400)
-            .title("My App")
+            .title("vide")
             .child(&window_box)
             .build();
 
@@ -169,7 +168,10 @@ impl Window {
                 let list_box = list_box.downcast_ref::<ListBox>().unwrap();
 
                 if arguments.starts_with("close") {
-                    list_box.set_visible(false);
+                    if list_box.get_visible() {
+                        list_box.set_visible(false);
+                        action.set_state(&vec![0, 0, 0].to_variant());
+                    }
                 } else if !list_box.get_visible() {
                     list_box.set_visible(true);
                     if let Err(err) = CompletionCommand::update(action, &arguments[..], list_box, buffers_to_completion.lock().unwrap()) {
@@ -177,7 +179,7 @@ impl Window {
                         println!("Error: {}", err);
                     }
                 } else if arguments.starts_with("complete") {
-                    CompletionCommand::complete(action, &arguments[..], list_box);
+                    CompletionCommand::complete(action, list_box);
                 } else if arguments.starts_with("display") {
                     CompletionCommand::display(action, list_box);
                 } else if arguments.starts_with("next") {
