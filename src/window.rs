@@ -617,7 +617,7 @@ impl Window {
 
                 if let Some(list_box) = list_box_ref {
                     let arguments = variant.unwrap().get::<String>().unwrap();
-                    let list_box = list_box.downcast_ref::<ListBox>().unwrap();
+                        let list_box = list_box.downcast_ref::<ListBox>().unwrap();
                     if let Err(err) = CompletionList::execute(&arguments[..], action, &list_box, buffers_to_completion.clone()) {
                         println!("Error: {err}");
                     }
