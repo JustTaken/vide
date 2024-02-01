@@ -1,7 +1,14 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{
+    Arc,
+    Mutex,
+    MutexGuard
+};
+
 use crate::{
     keymap::KeyMap,
     action::Action,
+    parser::Highlight,
+    parser::Lang,
 };
 
 use gtk::{
@@ -18,12 +25,13 @@ use gtk::{
     ListBox,
     Widget,
     MovementStep,
-    gio::{SimpleAction},
+    gio::SimpleAction,
 };
 
-#[derive(Debug)]
+
 pub struct Buffer {
     pub content: Option<TextBuffer>,
+    pub lang: Option<Lang>,
     pub name: String,
 }
 
@@ -91,6 +99,10 @@ impl TextWindow {
         } else {
             Err("No argument provided")
         }
+    }
+
+    fn update_tree(text_view: &TextView, buffers: MutexGuard<'_, Vec<Buffer>>) -> Result<(), &'static str> {
+        Err("Passando aqui")
     }
 
     pub fn next_line(widget: &Widget) {
@@ -200,9 +212,15 @@ impl TextWindow {
                 text_view.set_buffer(buffers[i].content.take().as_ref());
             } else if let Some(i) = current_buffer_index {
                 buffers[i].content = Some(text_view.buffer());
-                buffers.push(Buffer {content: None, name: file_name.to_string()});
 
-                let text_buffer = TextBuffer::builder().text(&content[..]).build();
+                let text_buffer = if let Some(lang) = Lang::from_extension(&file_name[..]) {
+                    buffers.push(Buffer {content: None, name: file_name.to_string(), lang: Some(lang.clone())});
+                    Highlight::get_colored_buffer(&content[..], lang)
+                } else {
+                    buffers.push(Buffer {content: None, name: file_name.to_string(), lang: None});
+                    TextBuffer::builder().text(&content[..]).build()
+                };
+
                 text_view.set_buffer(Some(&text_buffer));
             }
 
@@ -424,7 +442,6 @@ impl CompletionList {
             Vec::new()
         }
     }
-
 }
 
 pub struct StatusLine {
@@ -438,21 +455,9 @@ impl StatusLine {
             .hexpand(true)
             .focus_on_click(false)
             .build();
+
         command_line.add_controller(KeyMap::command_line_controller().controller);
-
-        command_line.connect_activate(|text| {
-            let content = text.buffer().text();
-            if let Err(err) = TextWindow::validate(&content) {
-                println!("Error: {}", err);
-            } else {
-                text.buffer().delete_text(0, None);
-                text.emit_move_focus(gtk::DirectionType::TabBackward);
-
-                if let Err(err) = text.activate_action("win.to_buffer", Some(&content.to_variant())) {
-                    println!("Error: {}", err);
-                }
-            }
-        });
+        command_line.connect_activate(StatusLine::on_change);
 
         let center = Text::builder().can_focus(false).css_name("default").build();
         let right = Text::builder().buffer(&EntryBuffer::new(Some("line:col"))).can_focus(false).css_name("default").build();
@@ -464,6 +469,20 @@ impl StatusLine {
 
         StatusLine {
             content,
+        }
+    }
+
+    fn on_change(text: &Text) {
+       let content = text.buffer().text();
+        if let Err(err) = TextWindow::validate(&content) {
+            println!("Error: {}", err);
+        } else {
+            text.buffer().delete_text(0, None);
+            text.emit_move_focus(gtk::DirectionType::TabBackward);
+
+            if let Err(err) = text.activate_action("win.to_buffer", Some(&content.to_variant())) {
+                println!("Error: {}", err);
+            }
         }
     }
 
@@ -584,7 +603,7 @@ impl Window {
             .child(&window_box)
             .build();
 
-        let buffers: Arc<Mutex<Vec<Buffer>>> = Arc::new(Mutex::new(vec![Buffer {content: None, name: "scratch".to_owned()}]));
+        let buffers: Arc<Mutex<Vec<Buffer>>> = Arc::new(Mutex::new(vec![Buffer {content: None, name: "scratch".to_owned(), lang: None}]));
         let buffers_to_completion = buffers.clone();
 
         window.add_action_entries([

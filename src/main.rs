@@ -7,7 +7,7 @@ use gtk::{
     CssProvider,
 };
 
-fn main() -> glib::ExitCode{
+fn main() -> glib::ExitCode {
     let app = Application::builder().build();
     app.connect_startup(load_style);
     app.connect_activate(Window::build);

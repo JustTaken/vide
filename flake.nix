@@ -14,6 +14,9 @@
         cargo
         gtk4
         pkg-config
+        tree-sitter
+        nodejs_21
+        emacs29
       ];
     };
   };
