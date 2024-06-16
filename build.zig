@@ -13,7 +13,6 @@ pub fn build(builder: *std.Build) void {
     main.linkSystemLibrary("dl");
     main.linkSystemLibrary("wayland-client");
     main.addCSourceFile(.{ .file = .{ .src_path = .{ .owner = builder, .sub_path = "assets/xdg-shell.c" } } });
-    main.addIncludePath(.{ .src_path = .{ .owner = builder, .sub_path = "include" } });
 
     builder.installArtifact(main);
 
