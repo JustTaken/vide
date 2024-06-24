@@ -12,16 +12,14 @@ layout(push_constant) uniform InstanceData {
 vec2[4] vertices = {{-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0}};
 
 layout(set = 0, binding = 0) uniform UniformGlobalObject {
-  float ratio;
+  float window_ratio;
   float scale;
-  float x_offset;
-  float y_offset;
-  float x_ratio;
+  float font_ratio;
 } ugo;
 
 void main() {
   vec2 p = vertices[gl_VertexIndex].xy + instance.position;
-  vec2 vertex_position = ugo.scale * vec2(p.x * ugo.ratio * ugo.x_ratio, p.y) + vec2(ugo.x_offset, ugo.y_offset);
+  vec2 vertex_position = ugo.scale * vec2(p.x * ugo.window_ratio * ugo.font_ratio, p.y) + vec2(-1.0, -1.0);
 
   gl_Position = vec4(vertex_position, 0.0, 1.0);
 
