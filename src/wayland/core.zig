@@ -52,18 +52,31 @@ pub const Wayland = struct {
 };
 
 const Buffer = struct {
+  name: []u8,
   chars: [CHAR_COUNT] Char,
   lines: []Line,
   line_count: u32,
   offset: [2]u32,
   cursor: Cursor,
   chars_update: bool,
+  mode_line: ModeLine,
   allocator: Allocator,
 };
 
 const Line = struct {
   content: []u8,
   char_count: u32,
+};
+
+const ModeLineMode = enum {
+  Command,
+  Normal,
+};
+
+const ModeLine = struct {
+  mode: ModeLineMode,
+  command: []u8,
+  cursor: Cursor,
 };
 
 const Cursor = struct {
@@ -93,7 +106,9 @@ pub inline fn has_chars_update(core: *const Wayland) bool {
 
 fn buffer_init(allocator: Allocator) !Buffer {
   var buffer: Buffer = undefined;
+  const name = "default";
 
+  buffer.name = try allocator.alloc(u8, name.len);
   buffer.lines = try allocator.alloc(Line, 10);
   buffer.allocator = allocator;
   buffer.offset = .{ 0, 0 };
@@ -102,6 +117,15 @@ fn buffer_init(allocator: Allocator) !Buffer {
   buffer.lines[0] = Line {
     .content = try allocator.alloc(u8, 50),
     .char_count = 0,
+  };
+
+  buffer.mode_line = ModeLine {
+    .mode = .Normal,
+    .command = try allocator.alloc(u8, 50),
+    .cursor = Cursor {
+      .x = 0,
+      .y = 0,
+    },
   };
 
   buffer.cursor = Cursor {
@@ -117,6 +141,10 @@ fn buffer_init(allocator: Allocator) !Buffer {
     };
 
     buffer.chars[i].pos.len = 0;
+  }
+
+  for (0..name.len) |i| {
+    buffer.name[i] = name[i];
   }
 
   return buffer;
@@ -136,6 +164,26 @@ inline fn copy(T: type, src: []const T, dst: []T) void {
   for (0..len) |i| {
     dst[i] = src[i];
   }
+}
+
+fn parse(i: u32, buffer: []u8) u32 {
+  var k: u32 = 0;
+  var num = i;
+
+  if (i == 0) {
+    buffer[0] = '0';
+    return 1;
+  }
+
+  while (num > 0) {
+    const rem: u8 = @intCast(num % 10);
+    buffer[k] = rem + '0';
+
+    k += 1;
+    num /= 10;
+  }
+
+  return k;
 }
 
 inline fn push_char(buffer: *Buffer, index: u32, pos: [2]u32) !void {
@@ -158,6 +206,72 @@ inline fn push_char(buffer: *Buffer, index: u32, pos: [2]u32) !void {
   char.pos.len += 1;
 }
 
+fn update_mode_line(core: *Wayland) !void {
+  const buffer = &core.buffers[core.buffer_index];
+  const rows = core.rows - 1;
+  const cols = core.cols - 1;
+  if (buffer.mode_line.mode == .Command) {
+  } else {
+    var string: [10]u8 = undefined;
+    var k: u32 = 0;
+
+    {
+      const len = parse(buffer.cursor.x, &string);
+      for (0..len) |i| {
+        const position: [2]u32 = .{ @intCast(cols - k), rows };
+        const index = string[i] - 32;
+        try push_char(buffer, index, position);
+        k += 1;
+      }
+    }
+
+    {
+      const sep = ", col: ";
+      const len = sep.len;
+
+      for (0..len) |i| {
+        const position: [2]u32 = .{ @intCast(cols - k), rows };
+        const index = sep[len - i - 1] - 32;
+        try push_char(buffer, index, position);
+        k += 1;
+      }
+    }
+
+    {
+      const len = parse(buffer.cursor.y, &string);
+
+      for (0..len) |i| {
+        const position: [2]u32 = .{ @intCast(cols - k), rows };
+        const index = string[i] - 32;
+        try push_char(buffer, index, position);
+        k += 1;
+      }
+    }
+
+    {
+      const sep = "line: ";
+
+      const len = sep.len;
+      for (0..len) |i| {
+        const position: [2]u32 = .{ @intCast(cols - k), rows };
+        const index = sep[len - i - 1] - 32;
+        try push_char(buffer, index, position);
+        k += 1;
+      }
+
+    }
+
+    {
+      const len = buffer.name.len;
+      for (0..len) |i| {
+        const position: [2]u32 = .{ @intCast(i), rows };
+        const index = buffer.name[i] - 32;
+        try push_char(buffer, index, position);
+      }
+    }
+  }
+}
+
 fn chars_update(
   core: *Wayland,
 ) !void {
@@ -172,7 +286,7 @@ fn chars_update(
   for (buffer.offset[1]..line_max) |i| {
     if (buffer.lines[i].char_count <= buffer.offset[0]) continue;
 
-    const x_max = buffer.offset[0] + core.cols;
+    const x_max = buffer.offset[0] + core.cols + 1;
     const col_max = math.min(x_max, buffer.lines[i].char_count);
 
     for (buffer.offset[0]..col_max) |j| {
@@ -184,39 +298,30 @@ fn chars_update(
     }
   }
 
+  try update_mode_line(core);
+
   buffer.chars_update = true;
+  core.update = true;
 }
 
-fn check_col_offset(buffer: *Buffer, cols: u32) bool {
+fn check_col_offset(buffer: *Buffer, cols: u32) void {
   const last_index = cols - 1;
-  var flag = false;
 
   if (last_index + buffer.offset[0] < buffer.cursor.x) {
     buffer.offset[0] = buffer.cursor.x - last_index;
-    flag = true;
   } else if (buffer.cursor.x < buffer.offset[0]) {
     buffer.offset[0] = buffer.cursor.x;
-    flag = true;
   }
-
-  return flag;
 }
 
-fn check_row_offset(buffer: *Buffer, rows: u32) bool {
+fn check_row_offset(buffer: *Buffer, rows: u32) void {
   const last_index = rows - 1;
-  var flag = false;
 
   if (last_index + buffer.offset[1] < buffer.cursor.y) {
     buffer.offset[1] = buffer.cursor.y - last_index;
-
-    flag = true;
   } else if (buffer.cursor.y < buffer.offset[1]) {
     buffer.offset[1] = buffer.cursor.y;
-
-    flag = true;
   }
-
-  return flag;
 }
 
 fn new_line(core: *Wayland) !void {
@@ -259,7 +364,7 @@ fn new_line(core: *Wayland) !void {
   buffer.line_count += 1;
   buffer.cursor.x = 0;
 
-  _ = check_row_offset(buffer, core.rows);
+  check_row_offset(buffer, core.rows);
   buffer.offset[0] = 0;
   try chars_update(core);
 }
@@ -289,7 +394,7 @@ fn tab(core: *Wayland) !void {
 
   buffer.cursor.x += TAB;
   line.char_count += TAB;
-  _ = check_col_offset(buffer, core.cols);
+  check_col_offset(buffer, core.cols);
   try chars_update(core);
 }
 
@@ -298,26 +403,28 @@ fn new_char(core: *Wayland) !void {
   const line = &buffer.lines[buffer.cursor.y];
   const len = line.content.len;
 
-  if (len <= line.char_count) {
+  if (len + 1 <= line.char_count) {
     const new = try buffer.allocator.alloc(u8, len * 2);
 
     copy(u8, line.content[0..buffer.cursor.x], new[0..buffer.cursor.x]);
-    copy(u8, line.content[buffer.cursor.x..], new[buffer.cursor.x + 1..]);
+    copy(u8, line.content[buffer.cursor.x..line.char_count], new[buffer.cursor.x + 1..line.char_count + 1]);
 
     buffer.allocator.free(line.content);
     line.content.ptr = new.ptr;
     line.content.len = new.len;
   } else {
-    for (buffer.cursor.x..line.char_count) |i| {
+    const dif = line.char_count - buffer.cursor.x;
+    for (0..dif) |i| {
       line.content[line.char_count - i] = line.content[line.char_count - i - 1];
     }
   }
 
   line.content[buffer.cursor.x] = core.last_char;
 
-  line.char_count += 1;
   buffer.cursor.x += 1;
-  _ = check_col_offset(buffer, core.cols);
+  line.char_count += 1;
+
+  check_col_offset(buffer, core.cols);
   try chars_update(core);
 }
 
@@ -331,9 +438,10 @@ fn next_line(core: *Wayland) !void {
       buffer.cursor.x = buffer.lines[buffer.cursor.y].char_count;
     }
 
-    if (check_col_offset(buffer, core.cols) or check_row_offset(buffer, core.rows)) {
-      try chars_update(core);
-    }
+    check_col_offset(buffer, core.cols);
+    check_row_offset(buffer, core.rows);
+
+    try chars_update(core);
   }
 }
 
@@ -347,30 +455,32 @@ fn prev_line(core: *Wayland) !void {
       buffer.cursor.x = buffer.lines[buffer.cursor.y].char_count;
     }
 
-    if (check_col_offset(buffer, core.cols) or check_row_offset(buffer, core.rows)) {
-      try chars_update(core);
-    }
+    check_col_offset(buffer, core.cols);
+    check_row_offset(buffer, core.rows);
+
+    try chars_update(core);
   }
 }
 
 fn line_start(core: *Wayland) !void {
   const buffer = &core.buffers[core.buffer_index];
 
-  buffer.cursor.x = 0;
+  if (buffer.cursor.x == 0) return;
 
-  if (check_col_offset(buffer, core.cols)) {
-    try chars_update(core);
-  }
+  buffer.cursor.x = 0;
+  check_col_offset(buffer, core.cols);
+  try chars_update(core);
 }
 
 fn line_end(core: *Wayland) !void {
   const buffer = &core.buffers[core.buffer_index];
+  const count = buffer.lines[buffer.cursor.y].char_count;
 
-  buffer.cursor.x = buffer.lines[buffer.cursor.y].char_count;
+  if (buffer.cursor.x == count) return;
 
-  if (check_col_offset(buffer, core.cols)) {
-    try chars_update(core);
-  }
+  buffer.cursor.x = count;
+  check_col_offset(buffer, core.cols);
+  try chars_update(core);
 }
 
 fn key_pressed(core: *Wayland, key: u32) !void {
@@ -398,8 +508,6 @@ fn key_pressed(core: *Wayland, key: u32) !void {
       },
     }
   }
-
-  core.update = true;
 
   const end = try std.time.Instant.now();
   std.debug.print("time elapsed: {} ns\n", .{end.since(start)});
