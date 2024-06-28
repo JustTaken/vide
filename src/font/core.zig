@@ -6,26 +6,30 @@ const PADDING: u32 = 3;
 const Face = struct {
     handle: c.FT_Face,
     library: c.FT_Library,
-    ascender: u32,
+
     em: u32,
+    ascender: u32,
     line_height: u32,
     max_advance: u32,
 };
 
 pub const TrueType = struct {
+    bitmap: Bitmap,
+    glyph_count: u32,
+
     scale: f32,
     x_ratio: f32,
     advance: u32,
     line_height: u32,
-    glyph_count: u32,
-    bitmap: Bitmap,
 };
 
 const Bitmap = struct {
-    handle: []u8,
     offsets: []Offset,
+    handle: []u8,
+
     width: u32,
     height: u32,
+
     allocator: std.mem.Allocator,
 };
 
@@ -53,18 +57,18 @@ inline fn bitmap_append(src: *const CBitmap, dst: *Bitmap, offset: Offset) void 
     }
 }
 
-fn division(numerator: u32, denumerator: u32) f32 {
+inline fn division(numerator: u32, denumerator: u32) f32 {
     const f_numerator: f32 = @floatFromInt(numerator);
     const f_denumerator: f32 = @floatFromInt(denumerator);
 
     return f_numerator / f_denumerator;
 }
 
-fn from_fixed(fixed: isize) u32 {
+inline fn from_fixed(fixed: isize) u32 {
     return @intCast(fixed >> 6);
 }
 
-fn add_glyph(
+inline fn add_glyph(
     bitmap: *Bitmap, 
     face: *const Face, 
     position: Offset,
@@ -145,9 +149,6 @@ pub fn init(size: u32, allocator: std.mem.Allocator) !TrueType {
         const line: u32 = index / COLS;
         const col: u32 = index - line * COLS;
 
-        // const ii: u8 = @intCast(code);
-        // std.debug.print("col: {d}, line: {}, {c}\n", .{col, line, ii});
-
         const offset = Offset {
             .x = col * (font.advance + PADDING),
             .y = line * (font.line_height + PADDING),
@@ -170,7 +171,7 @@ pub fn normalized_height(font: *const TrueType) f32 {
     return division(font.line_height, font.bitmap.height);
 }
 
-pub fn glyph_normalized_offset(font: *const TrueType, index: usize) [2]f32 {
+pub inline fn glyph_normalized_offset(font: *const TrueType, index: usize) [2]f32 {
     return .{
         division(font.bitmap.offsets[index].x, font.bitmap.width),
         division(font.bitmap.offsets[index].y, font.bitmap.height),
