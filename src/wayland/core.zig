@@ -67,6 +67,7 @@ const Buffer = struct {
     offset: [2]u32,
     cursor: Cursor,
     selection: Cursor,
+    selection_active: bool,
 };
 
 const Line = struct {
@@ -109,6 +110,16 @@ pub inline fn get_cursor_position(core: *const Wayland) [2]u32 {
     return .{ buffer.cursor.x - buffer.offset[0], buffer.cursor.y - buffer.offset[1] };
 }
 
+pub inline fn place_cursor(buffer: *Buffer, position: [2]u32) void {
+    buffer.cursor.x = position[0];
+    buffer.cursor.y = position[1];
+
+    if (!buffer.selection_active) {
+        buffer.selection.x = buffer.cursor.x;
+        buffer.selection.y = buffer.cursor.y;
+    }
+}
+
 fn buffer_init(allocator: Allocator) !Buffer {
     var buffer: Buffer = undefined;
     const name = "scratch";
@@ -117,6 +128,7 @@ fn buffer_init(allocator: Allocator) !Buffer {
     buffer.lines = try allocator.alloc(Line, 10);
     buffer.offset = .{ 0, 0 };
     buffer.line_count = 1;
+    buffer.selection_active = false;
     buffer.selection = Cursor {
         .x = 0,
         .y = 0,
@@ -370,6 +382,7 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
         const end_pos = try file.getEndPos();
         const content = try core.allocator.alloc(u8, end_pos);
         defer core.allocator.free(content);
+
         const len = try file.read(content);
 
         const line_count = len / 50;
@@ -423,6 +436,7 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
         .y = 0,
     };
 
+    buffer.selection_active = false;
     buffer.selection = Cursor {
         .x = 0,
         .y = 0,
@@ -501,7 +515,7 @@ fn enter(core: *Wayland) !void {
         return;
     }
 
-    buffer.cursor.y += 1;
+    place_cursor(buffer, .{ buffer.cursor.x, buffer.cursor.y + 1 });
 
     const len = buffer.lines.len;
     if (len <= buffer.line_count) {
@@ -537,7 +551,7 @@ fn enter(core: *Wayland) !void {
     previous_line.char_count = buffer.cursor.x;
 
     buffer.line_count += 1;
-    buffer.cursor.x = 0;
+    place_cursor(buffer, .{ 0, buffer.cursor.y });
 
     check_row_offset(buffer, core.rows - 1);
     buffer.offset[0] = 0;
@@ -570,7 +584,7 @@ fn tab(core: *Wayland) !void {
         line.content[i] = ' ';
     }
 
-    buffer.cursor.x += TAB;
+    place_cursor(buffer, .{ buffer.cursor.x + TAB, buffer.cursor.y });
     line.char_count += TAB;
     check_col_offset(buffer, core.cols);
     try chars_update(core);
@@ -589,7 +603,7 @@ fn new_char(core: *Wayland) !void {
 
         line.content[buffer.cursor.x - 1] = core.last_char;
         line.char_count += 1;
-        buffer.cursor.x += 1;
+        place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y });
 
         try chars_update(core);
         return;
@@ -616,11 +630,10 @@ fn new_char(core: *Wayland) !void {
 
     line.content[buffer.cursor.x] = core.last_char;
 
-    buffer.cursor.x += 1;
+    place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y });
     line.char_count += 1;
 
     check_col_offset(buffer, core.cols);
-
     try chars_update(core);
 }
 
@@ -629,12 +642,14 @@ fn next_line(core: *Wayland) !void {
     if (core.mode_line.mode == .Command) return;
 
     if (buffer.cursor.y + 1 < buffer.line_count) {
-        buffer.cursor.y += 1;
+        const y = buffer.cursor.y + 1;
+        var x = buffer.cursor.x;
 
-        if (buffer.lines[buffer.cursor.y].char_count < buffer.cursor.x) {
-            buffer.cursor.x = buffer.lines[buffer.cursor.y].char_count;
+        if (buffer.lines[y].char_count < x) {
+            x = buffer.lines[y].char_count;
         }
 
+        place_cursor(buffer, .{ x, y });
         check_col_offset(buffer, core.cols);
         check_row_offset(buffer, core.rows - 1);
 
@@ -647,12 +662,14 @@ fn prev_line(core: *Wayland) !void {
     if (core.mode_line.mode == .Command) return;
 
     if (buffer.cursor.y > 0) {
-        buffer.cursor.y -= 1;
+        const y = buffer.cursor.y - 1;
+        var x = buffer.cursor.x;
 
-        if (buffer.lines[buffer.cursor.y].char_count < buffer.cursor.x) {
-            buffer.cursor.x = buffer.lines[buffer.cursor.y].char_count;
+        if (buffer.lines[y].char_count < x) {
+            x = buffer.lines[y].char_count;
         }
 
+        place_cursor(buffer, .{ x, y });
         check_col_offset(buffer, core.cols);
         check_row_offset(buffer, core.rows - 1);
 
@@ -663,21 +680,35 @@ fn prev_line(core: *Wayland) !void {
 fn line_start(core: *Wayland) !void {
     const buffer = &core.buffers[core.buffer_index];
 
-    if (buffer.cursor.x == 0) return;
+    if (core.mode_line.mode == .Command) {
+        if (buffer.cursor.x == 1) return;
 
-    buffer.cursor.x = 0;
-    check_col_offset(buffer, core.cols);
+        place_cursor(buffer, .{ 1, buffer.cursor.y });
+    } else {
+        if (buffer.cursor.x == 0) return;
+
+        place_cursor(buffer, .{ 0, buffer.cursor.y });
+        check_col_offset(buffer, core.cols);
+    }
     try chars_update(core);
 }
 
 fn line_end(core: *Wayland) !void {
     const buffer = &core.buffers[core.buffer_index];
-    const count = buffer.lines[buffer.cursor.y].char_count;
+    if (core.mode_line.mode == .Command) {
+        const line = &core.mode_line.line;
+        if (buffer.cursor.x == line.char_count + 1) return;
 
-    if (buffer.cursor.x == count) return;
+        place_cursor(buffer, .{ line.char_count + 1, buffer.cursor.y });
+    } else {
+        const count = buffer.lines[buffer.cursor.y].char_count;
 
-    buffer.cursor.x = count;
-    check_col_offset(buffer, core.cols);
+        if (buffer.cursor.x == count) return;
+
+        place_cursor(buffer, .{ count, buffer.cursor.y });
+        check_col_offset(buffer, core.cols);
+    }
+
     try chars_update(core);
 }
 
@@ -688,24 +719,118 @@ fn command_mode(core: *Wayland) !void {
     core.mode_line.mode = .Command;
     core.mode_line.cursor = buffer.cursor;
     core.mode_line.line.char_count = 0;
-    buffer.cursor = Cursor {
-        .x = 1,
-        .y = core.rows - 1,
-    };
+    place_cursor(buffer, .{ 1, core.rows - 1 });
 
     try chars_update(core);
 }
 
 fn delete_selection(core: *Wayland) !void {
-    const buffer = &core.buffer[core.buffer_index];
-    const line = &buffer.lines[buffer.cursor.y];
+    const buffer = &core.buffers[core.buffer_index];
 
-    if (buffer.cursor.x == line.char_count) {
+    if (core.mode_line.mode == .Command) {
+        const start = if (buffer.cursor.x < buffer.selection.x) buffer.cursor.x else buffer.selection.x;
+        var end = buffer.cursor.x + buffer.selection.x - start;
+        const line = &core.mode_line.line;
+        if (end < line.char_count) {
+            end += 1;
+        }
+
+        copy(u8, line.content[end..line.char_count], line.content[start..]);
+
+        const len = line.char_count + start - end;
+        line.char_count = len;
     }
 
-    for (buffer.cursor.x..line.char_count) |i| {
-        _ = i;
+    const start_y = if (buffer.cursor.y < buffer.selection.y) buffer.cursor.y else buffer.selection.y;
+    const start_x = if (buffer.cursor.x < buffer.selection.x) buffer.cursor.x else buffer.selection.x;
+    var end_y = buffer.cursor.y + buffer.selection.y - start_y;
+    var end_x = buffer.cursor.x + buffer.selection.x - start_x;
+
+    if (buffer.lines[end_y].char_count == end_x) {
+        if (buffer.line_count > end_y) {
+            end_y += 1;
+            end_x = 0;
+        }
+    } else {
+        end_x += 1;
     }
+
+    const len = buffer.lines[end_y].char_count + start_x - end_x;
+
+    if (buffer.lines[start_y].content.len < len) {
+        const new = try core.allocator.alloc(u8, len);
+
+        const end_of_line = buffer.lines[end_y].char_count;
+        copy(u8, buffer.lines[start_y].content[0..start_x], new);
+        copy(u8, buffer.lines[end_y].content[end_x..end_of_line], new[start_x..]);
+
+        core.allocator.free(buffer.lines[start_y].content);
+
+        buffer.lines[start_y].content.ptr = new.ptr;
+        buffer.lines[start_y].content.len = new.len;
+    } else {
+        const end_of_line = buffer.lines[end_y].char_count;
+        copy(u8, buffer.lines[end_y].content[end_x..end_of_line], buffer.lines[start_y].content[start_x..]);
+    }
+
+    buffer.lines[start_y].char_count = len;
+    buffer.selection_active = false;
+    place_cursor(buffer, .{ start_x, start_y });
+
+    const diff = end_y - start_y;
+    if (diff != 0) {
+        for (0..diff) |i| {
+            core.allocator.free(buffer.lines[i + start_y + 1].content);
+        }
+
+        for (end_y..buffer.line_count) |i| {
+            buffer.lines[start_y + 1 + i] = buffer.lines[end_y + 1 + i];
+        }
+
+        buffer.line_count -= diff;
+    }
+
+    try chars_update(core);
+}
+
+fn prev_char(core: *Wayland) !void {
+    const buffer = &core.buffers[core.buffer_index];
+
+    if (core.mode_line.mode == .Command) {
+        if (buffer.cursor.x == 1) return;
+        place_cursor(buffer, .{ buffer.cursor.x - 1, buffer.cursor.y });
+    } else {
+        if (buffer.cursor.x != 0){
+            place_cursor(buffer, .{ buffer.cursor.x - 1, buffer.cursor.y });
+        } else if (buffer.cursor.y != 0) {
+            const y = buffer.cursor.y - 1;
+            const line = &buffer.lines[y];
+            place_cursor(buffer, .{ line.char_count, y });
+        } else {
+            return;
+        }
+    }
+
+    try chars_update(core);
+}
+
+fn next_char(core: *Wayland) !void {
+    const buffer = &core.buffers[core.buffer_index];
+    if (core.mode_line.mode == .Command) {
+        const line = &core.mode_line.line;
+        if (buffer.cursor.x == line.char_count + 1) return;
+
+        place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y });
+    } else {
+        if (buffer.cursor.x != buffer.lines[buffer.cursor.y].char_count) {
+            place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y });
+        } else if (buffer.cursor.y < buffer.line_count) {
+            place_cursor(buffer, .{ 0, buffer.cursor.y + 1 });
+        } else {
+            return;
+        }
+    }
+    try chars_update(core);
 }
 
 fn key_pressed(core: *Wayland, key: u32) !void {
@@ -720,6 +845,9 @@ fn key_pressed(core: *Wayland, key: u32) !void {
             'p' => core.last_fn = prev_line,
             'a' => core.last_fn = line_start,
             'e' => core.last_fn = line_end,
+            'd' => core.last_fn = delete_selection,
+            'f' => core.last_fn = next_char,
+            'b' => core.last_fn = prev_char,
             else => return,
         }
     } else if (core.alt) {
