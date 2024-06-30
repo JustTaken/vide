@@ -152,24 +152,26 @@ const CharType = struct {
     capacity: u32,
 };
 
-const Cursor = struct {
-    position: Buffer,
+const General = struct {
+    positions: Buffer,
     dst: [][2]D,
+    capacity: u32,
 };
 
 pub const Painter = struct {
     index_buffer: Buffer,
     uniform: Uniform,
 
-    coords_buffer: Buffer,
+    char_coords: Buffer,
     chars: []CharType,
-    texture: Image,
-    texture_descriptor: TextureDescriptor,
+    char_texture: Image,
+    char_texture_descriptor: TextureDescriptor,
 
-    cursor_coords: Buffer,
-    cursor: Cursor,
-    cursor_texture: Image,
-    cursor_texture_descriptor: TextureDescriptor,
+    plain_elements: General,
+
+    general_coords: Buffer,
+    general_texture: Image,
+    general_texture_descriptor: TextureDescriptor,
 
     allocator: std.mem.Allocator,
 };
@@ -1101,25 +1103,26 @@ pub fn painter_init(
         painter.chars[i].dst.len = 0;
     }
 
-    const cursor_coords: [4][2]f32 = .{
+    const general_coords: [4][2]f32 = .{
         .{ 0.0, 0.0 },
         .{ 1.0, 0.0 },
         .{ 0.0, 1.0 },
         .{ 1.0, 1.0 },
     };
 
-    painter.cursor.position = buffer_init(
+    painter.plain_elements.positions = buffer_init(
         [2]D,
         device,
         c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        1
+        10
     );
 
-    _ = device.vkMapMemory(device.handle, painter.cursor.position.memory, 0, @sizeOf([2]D), 0, @ptrCast(&painter.cursor.dst));
-    painter.cursor.dst.len = 1;
+    _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, @sizeOf([2]D), 0, @ptrCast(&painter.plain_elements.dst));
+    painter.plain_elements.dst.len = 0;
+    painter.plain_elements.capacity = 10;
 
-    painter.coords_buffer = buffer_init(
+    painter.char_coords = buffer_init(
         [4][2]f32,
         device,
         c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -1127,7 +1130,7 @@ pub fn painter_init(
         coords.len
     );
 
-    painter.cursor_coords = buffer_init(
+    painter.general_coords = buffer_init(
         [4][2]f32,
         device,
         c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -1144,7 +1147,7 @@ pub fn painter_init(
         indices.len
     );
 
-    painter.texture = image_init(
+    painter.char_texture = image_init(
         device,
         c.VK_FORMAT_R8_UNORM,
         c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -1152,12 +1155,12 @@ pub fn painter_init(
         font.bitmap.height
     );
 
-    var cursor_texture: [256]u8 = undefined;
+    var plain_elements_texture: [256]u8 = undefined;
     for (0..256) |i| {
-        cursor_texture[i] = 255;
+        plain_elements_texture[i] = 255;
     }
 
-    painter.cursor_texture = image_init(
+    painter.general_texture = image_init(
         device,
         c.VK_FORMAT_R8_UNORM,
         c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -1165,22 +1168,107 @@ pub fn painter_init(
         16,
     );
 
-    copy_data_to_buffer([4][2]f32, device, &painter.coords_buffer, command_pool, &coords);
-    copy_data_to_buffer([2]f32, device, &painter.cursor_coords, command_pool, &cursor_coords);
+    copy_data_to_buffer([4][2]f32, device, &painter.char_coords, command_pool, &coords);
+    copy_data_to_buffer([2]f32, device, &painter.general_coords, command_pool, &general_coords);
     copy_data_to_buffer(u16, device, &painter.index_buffer, command_pool, &indices);
-    copy_data_to_image(device, &painter.texture, command_pool, font.bitmap.handle);
-    copy_data_to_image(device, &painter.cursor_texture, command_pool, &cursor_texture);
+    copy_data_to_image(device, &painter.char_texture, command_pool, font.bitmap.handle);
+    copy_data_to_image(device, &painter.general_texture, command_pool, &plain_elements_texture);
 
-    painter.texture_descriptor = texture_descriptor_init(device, graphics_pipeline, &painter.texture);
-    painter.cursor_texture_descriptor = texture_descriptor_init(device, graphics_pipeline, &painter.cursor_texture);
+    painter.char_texture_descriptor = texture_descriptor_init(device, graphics_pipeline, &painter.char_texture);
+    painter.general_texture_descriptor = texture_descriptor_init(device, graphics_pipeline, &painter.general_texture);
 
     return painter;
 }
 
-fn update_painter_cursor(painter: *Painter, window: *const Window) void {
+fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painter, window: *const Window) void {
+    painter.plain_elements.dst.len = 1;
+
+    blk: {
+        if (wayland.is_selection_active(window)) {
+            const lines = wayland.get_selected_lines(window);
+            const selection_boundary = wayland.get_selection_boundary(window);
+            const len = selection_boundary[3] + 1 - selection_boundary[1];
+            var position_count: u32 = 0;
+
+            if (len == 1) {
+                if (selection_boundary[2] - selection_boundary[0] == 0) break :blk;
+                position_count += selection_boundary[2] - selection_boundary[0] + 1;
+            } else {
+                for (0..len) |i| {
+                    if (i == 0) {
+                        position_count += lines[i + selection_boundary[1]].char_count - selection_boundary[0] + 1;
+                    } else if (i == len - 1) {
+                        position_count += selection_boundary[2] + 1;
+                    } else {
+                        position_count += lines[i + selection_boundary[1]].char_count + 1;
+                    }
+                }
+            }
+
+            if (painter.plain_elements.capacity <= position_count + 1) {
+                _ = device.vkUnmapMemory(device.handle, painter.plain_elements.positions.memory);
+                buffer_deinit(device, &painter.plain_elements.positions);
+
+                painter.plain_elements.positions = buffer_init(
+                    [2]D,
+                    device,
+                    c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    position_count + 1,
+                );
+
+                painter.plain_elements.capacity = position_count;
+                _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, (1 + position_count) * @sizeOf([2]D), 0, @ptrCast(&painter.plain_elements.dst));
+            }
+
+            painter.plain_elements.dst.len += position_count;
+
+            var index: u32 = 1;
+            if (len == 1) {
+                for (selection_boundary[0]..selection_boundary[2] + 1) |j| {
+                    const jj: u32 = @intCast(j);
+                    painter.plain_elements.dst[index] = .{ jj, selection_boundary[1] };
+                    index += 1;
+                }
+            } else {
+                for (0..len) |i| {
+                    const boundary: [2]u32 = condition: {
+                        if (i == 0) break :condition .{ selection_boundary[0], lines[selection_boundary[1]].char_count };
+                        if (i == len - 1) break :condition .{ 0, selection_boundary[2] };
+                        break :condition .{ 0, lines[selection_boundary[1] + i].char_count };
+                    };
+
+                    const ii: u32 = @intCast(i);
+                    for (boundary[0]..boundary[1] + 1) |j| {
+                        const jj: u32 = @intCast(j);
+                        painter.plain_elements.dst[index] = .{ jj, ii + selection_boundary[1] };
+                        index += 1;
+                    }
+
+                    // if (i == 0) {
+                    //     for (selection_boundary[0]..lines[selection_boundary[1]].char_count + 1) |j| {
+                    //     }
+                    // } else if (i == len - 1) {
+                    //     for (0..selection_boundary[2] + 1) |j| {
+                    //         const jj: u32 = @intCast(j);
+                    //         painter.plain_elements.dst[index] = .{ jj, ii + selection_boundary[1] };
+                    //         index += 1;
+                    //     }
+                    // } else {
+                    //     for (0..lines[selection_boundary[1] + i].char_count + 1) |j| {
+                    //         const jj: u32 = @intCast(j);
+                    //         painter.plain_elements.dst[index] = .{ jj, ii + selection_boundary[1] };
+                    //         index += 1;
+                    //     }
+                    // }
+                }
+            }
+        }
+    }
+
     const cursor_data = wayland.get_cursor_position(window);
-    painter.cursor.dst[0][0] = cursor_data[0];
-    painter.cursor.dst[0][1] = cursor_data[1];
+    painter.plain_elements.dst[0][0] = cursor_data[0];
+    painter.plain_elements.dst[0][1] = cursor_data[1];
 }
 
 fn update_painter(device: *const DeviceDispatch, painter: *Painter, window: *const Window) void {
@@ -1299,9 +1387,9 @@ fn sampler_init(device: *const DeviceDispatch) c.VkSampler {
         .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .magFilter = c.VK_FILTER_LINEAR,
         .minFilter = c.VK_FILTER_LINEAR,
-        .addressModeU = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-        .addressModeV = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-        .addressModeW = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        .addressModeU = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
         .anisotropyEnable = c.VK_FALSE,
         .maxAnisotropy = 1.0,
         .borderColor = c.VK_BORDER_COLOR_INT_OPAQUE_BLACK,
@@ -1346,7 +1434,7 @@ pub fn draw_frame(
         painter.uniform.dst[0] = window.scale;
     }
 
-    update_painter_cursor(painter, window);
+    update_painter_plain_elements(device, painter, window);
     update_painter(device, painter, window);
     record_draw_command(
         device,
@@ -1456,7 +1544,7 @@ fn record_draw_command(
     device.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
     device.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
     device.vkCmdBindPipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline.handle);
-    device.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline.layout, 0, 2, &.{ painter.uniform.set, painter.texture_descriptor.set }, 0, &0);
+    device.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline.layout, 0, 2, &.{ painter.uniform.set, painter.char_texture_descriptor.set }, 0, &0);
     device.vkCmdBindIndexBuffer(command_buffer, painter.index_buffer.handle, 0, c.VK_INDEX_TYPE_UINT16);
 
     for (0..CHAR_COUNT) |i| {
@@ -1464,18 +1552,18 @@ fn record_draw_command(
         if (len == 0) continue;
 
         const vertex_offsets = &[_]u64 { @sizeOf(f32) * 4 * 2 * i, 0 };
-        const vertex_buffers = &[_]c.VkBuffer { painter.coords_buffer.handle, painter.chars[i].positions.handle };
+        const vertex_buffers = &[_]c.VkBuffer { painter.char_coords.handle, painter.chars[i].positions.handle };
 
         device.vkCmdBindVertexBuffers(command_buffer, 0, vertex_buffers.len, &vertex_buffers[0], &vertex_offsets[0]);
         device.vkCmdDrawIndexed(command_buffer, 6, len, 0, 0, 0);
     }
 
     const vertex_offsets = &[_]u64 { 0, 0 };
-    const vertex_buffers = &[_]c.VkBuffer { painter.coords_buffer.handle, painter.cursor.position.handle };
+    const vertex_buffers = &[_]c.VkBuffer { painter.general_coords.handle, painter.plain_elements.positions.handle };
 
-    device.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline.layout, 0, 2, &.{ painter.uniform.set, painter.cursor_texture_descriptor.set }, 0, &0);
+    device.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline.layout, 0, 2, &.{ painter.uniform.set, painter.general_texture_descriptor.set }, 0, &0);
     device.vkCmdBindVertexBuffers(command_buffer, 0, vertex_buffers.len, &vertex_buffers[0], &vertex_offsets[0]);
-    device.vkCmdDrawIndexed(command_buffer, 6, 1, 0, 0, 0);
+    device.vkCmdDrawIndexed(command_buffer, 6, @intCast(painter.plain_elements.dst.len), 0, 0, 0);
 
     device.vkCmdEndRenderPass(command_buffer);
     _ = device.vkEndCommandBuffer(command_buffer);
@@ -1822,17 +1910,17 @@ fn texture_descriptor_deinit(device: *const DeviceDispatch, texture_descriptor: 
 }
 
 pub fn painter_deinit(device: *const DeviceDispatch, painter: *const Painter) void {
-    texture_descriptor_deinit(device, &painter.texture_descriptor);
-    texture_descriptor_deinit(device, &painter.cursor_texture_descriptor);
-    image_deinit(device, &painter.texture);
-    image_deinit(device, &painter.cursor_texture);
+    texture_descriptor_deinit(device, &painter.char_texture_descriptor);
+    texture_descriptor_deinit(device, &painter.general_texture_descriptor);
+    image_deinit(device, &painter.char_texture);
+    image_deinit(device, &painter.general_texture);
 
     buffer_deinit(device, &painter.uniform.buffer);
-    buffer_deinit(device, &painter.coords_buffer);
-    buffer_deinit(device, &painter.cursor_coords);
+    buffer_deinit(device, &painter.char_coords);
+    buffer_deinit(device, &painter.general_coords);
     buffer_deinit(device, &painter.index_buffer);
 
-    buffer_deinit(device, &painter.cursor.position);
+    buffer_deinit(device, &painter.plain_elements.positions);
     for (painter.chars) |char| {
         buffer_deinit(device, &char.positions);
     }

@@ -110,6 +110,34 @@ pub inline fn get_cursor_position(core: *const Wayland) [2]u32 {
     return .{ buffer.cursor.x - buffer.offset[0], buffer.cursor.y - buffer.offset[1] };
 }
 
+pub inline fn is_selection_active(core: *const Wayland) bool {
+    const buffer = &core.buffers[core.buffer_index];
+
+    return buffer.selection_active;
+}
+
+pub inline fn get_selection_boundary(core: *const Wayland) [4]u32 {
+    const buffer = &core.buffers[core.buffer_index];
+
+    const start_y = if (buffer.cursor.y < buffer.selection.y) buffer.cursor.y else buffer.selection.y;
+    const start_x = if (buffer.cursor.x < buffer.selection.x) buffer.cursor.x else buffer.selection.x;
+    const end_y = buffer.cursor.y + buffer.selection.y - start_y;
+    const end_x = buffer.cursor.x + buffer.selection.x - start_x;
+
+    return .{
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+    };
+}
+
+pub inline fn get_selected_lines(core: *const Wayland) []Line {
+    const buffer = &core.buffers[core.buffer_index];
+
+    return buffer.lines;
+}
+
 pub inline fn place_cursor(buffer: *Buffer, position: [2]u32) void {
     buffer.cursor.x = position[0];
     buffer.cursor.y = position[1];
@@ -372,104 +400,109 @@ const OPEN = "open";
 const BUFFER = "buffer";
 
 fn open_file(core: *Wayland, file_path: []const u8) !void {
-    const start = try Instant.now();
-    var buffer: Buffer = undefined;
+    open_buffer(core, file_path) catch {
+        const start = try Instant.now();
+        var buffer: Buffer = undefined;
 
-    {
-        const file = try std.fs.cwd().openFile(file_path, .{});
-        defer file.close();
+        {
+            const file = try std.fs.cwd().openFile(file_path, .{});
+            defer file.close();
 
-        const end_pos = try file.getEndPos();
-        const content = try core.allocator.alloc(u8, end_pos);
-        defer core.allocator.free(content);
+            const end_pos = try file.getEndPos();
+            const content = try core.allocator.alloc(u8, end_pos);
+            defer core.allocator.free(content);
 
-        const len = try file.read(content);
+            const len = try file.read(content);
 
-        const line_count = len / 50;
-        buffer.line_count = 1;
-        buffer.lines = try core.allocator.alloc(Line, line_count);
+            const line_count = len / 50;
+            buffer.line_count = 1;
+            buffer.lines = try core.allocator.alloc(Line, line_count);
 
-        var line = &buffer.lines[0];
-        line.char_count = 0;
-        line.content = try core.allocator.alloc(u8, 50);
+            var line = &buffer.lines[0];
+            line.char_count = 0;
+            line.content = try core.allocator.alloc(u8, 50);
 
-        for (0..len) |i| {
-            if (buffer.line_count >= buffer.lines.len) {
-                const new = try core.allocator.alloc(Line, buffer.lines.len * 2);
-                copy(Line, buffer.lines, new);
+            for (0..len) |i| {
+                if (buffer.line_count >= buffer.lines.len) {
+                    const new = try core.allocator.alloc(Line, buffer.lines.len * 2);
+                    copy(Line, buffer.lines, new);
 
-                core.allocator.free(buffer.lines);
+                    core.allocator.free(buffer.lines);
 
-                buffer.lines.ptr = new.ptr;
-                buffer.lines.len = new.len;
+                    buffer.lines.ptr = new.ptr;
+                    buffer.lines.len = new.len;
 
-                line = &buffer.lines[buffer.line_count - 1];
+                    line = &buffer.lines[buffer.line_count - 1];
+                }
+
+                if (content[i] == '\n') {
+                    line = &buffer.lines[buffer.line_count];
+                    line.content = try core.allocator.alloc(u8, 50);
+                    line.char_count = 0;
+                    buffer.line_count += 1;
+
+                    continue;
+                }
+
+                if (line.content.len <= line.char_count) {
+                    const new = try core.allocator.alloc(u8, line.content.len * 2);
+
+                    copy(u8, line.content, new);
+                    core.allocator.free(line.content);
+
+                    line.content.ptr = new.ptr;
+                    line.content.len = new.len;
+                }
+
+                line.content[line.char_count] = content[i];
+                line.char_count += 1;
             }
-
-            if (content[i] == '\n') {
-                line = &buffer.lines[buffer.line_count];
-                line.content = try core.allocator.alloc(u8, 50);
-                line.char_count = 0;
-                buffer.line_count += 1;
-
-                continue;
-            }
-
-            if (line.content.len <= line.char_count) {
-                const new = try core.allocator.alloc(u8, line.content.len * 2);
-
-                copy(u8, line.content, new);
-                core.allocator.free(line.content);
-
-                line.content.ptr = new.ptr;
-                line.content.len = new.len;
-            }
-
-            line.content[line.char_count] = content[i];
-            line.char_count += 1;
         }
-    }
 
-    buffer.offset = .{ 0, 0 };
-    buffer.cursor = Cursor {
-        .x = 0,
-        .y = 0,
+        buffer.offset = .{ 0, 0 };
+        buffer.cursor = Cursor {
+            .x = 0,
+            .y = 0,
+        };
+
+        buffer.selection_active = false;
+        buffer.selection = Cursor {
+            .x = 0,
+            .y = 0,
+        };
+
+        buffer.name = try core.allocator.alloc(u8, file_path.len);
+        for (0..file_path.len) |i| {
+            buffer.name[i] = file_path[i];
+        }
+
+        if (core.buffers.len <= core.buffer_count) {
+            const new = try core.allocator.alloc(Buffer, core.buffers.len * 2);
+            copy(Buffer, core.buffers, new);
+
+            core.allocator.free(core.buffers);
+
+            core.buffers.ptr = new.ptr;
+            core.buffers.len = new.len;
+        }
+
+        core.buffers[core.buffer_count] = buffer;
+        core.buffer_index = core.buffer_count;
+        core.buffer_count += 1;
+
+        const end = try Instant.now();
+        std.debug.print("open file time: {} ns\n", .{end.since(start)});
     };
-
-    buffer.selection_active = false;
-    buffer.selection = Cursor {
-        .x = 0,
-        .y = 0,
-    };
-
-    buffer.name = try core.allocator.alloc(u8, file_path.len);
-    for (0..file_path.len) |i| {
-        buffer.name[i] = file_path[i];
-    }
-
-    if (core.buffers.len <= core.buffer_count) {
-        const new = try core.allocator.alloc(Buffer, core.buffers.len * 2);
-        copy(Buffer, core.buffers, new);
-
-        core.allocator.free(core.buffers);
-
-        core.buffers.ptr = new.ptr;
-        core.buffers.len = new.len;
-    }
-
-    core.buffers[core.buffer_count] = buffer;
-    core.buffer_index = core.buffer_count;
-    core.buffer_count += 1;
-
-    const end = try Instant.now();
-    std.debug.print("open file time: {} ns\n", .{end.since(start)});
 }
 
-fn open_buffer(core: *Wayland, buffer_name: []const u8) void {
+fn open_buffer(core: *Wayland, buffer_name: []const u8) !void {
     for (0..core.buffer_count) |i| {
         if (std.mem.eql(u8, buffer_name, core.buffers[i].name)) {
             core.buffer_index = @intCast(i);
+            break;
         }
+    } else {
+        return error.NoSuchBuffer;
     }
 }
 
@@ -492,11 +525,9 @@ fn execute_command(core: *Wayland) !void {
 
     switch (h) {
         hash(OPEN) => try open_file(core, argument),
-        hash(BUFFER) => open_buffer(core, argument),
+        hash(BUFFER) => try open_buffer(core, argument),
         else => std.debug.print("alguma outra coisa\n", .{}),
     }
-
-    std.debug.print("command: {s}\n", .{command});
 }
 
 fn enter(core: *Wayland) !void {
@@ -731,14 +762,21 @@ fn delete_selection(core: *Wayland) !void {
         const start = if (buffer.cursor.x < buffer.selection.x) buffer.cursor.x else buffer.selection.x;
         var end = buffer.cursor.x + buffer.selection.x - start;
         const line = &core.mode_line.line;
+
         if (end < line.char_count) {
             end += 1;
         }
 
-        copy(u8, line.content[end..line.char_count], line.content[start..]);
+        copy(u8, line.content[end - 1..line.char_count], line.content[start - 1..]);
 
         const len = line.char_count + start - end;
         line.char_count = len;
+
+        buffer.selection_active = false;
+        place_cursor(buffer, .{ start, buffer.cursor.y});
+
+        try chars_update(core);
+        return;
     }
 
     const start_y = if (buffer.cursor.y < buffer.selection.y) buffer.cursor.y else buffer.selection.y;
@@ -747,7 +785,7 @@ fn delete_selection(core: *Wayland) !void {
     var end_x = buffer.cursor.x + buffer.selection.x - start_x;
 
     if (buffer.lines[end_y].char_count == end_x) {
-        if (buffer.line_count > end_y) {
+        if (buffer.line_count > end_y + 1) {
             end_y += 1;
             end_x = 0;
         }
@@ -783,7 +821,8 @@ fn delete_selection(core: *Wayland) !void {
             core.allocator.free(buffer.lines[i + start_y + 1].content);
         }
 
-        for (end_y..buffer.line_count) |i| {
+        const delta = buffer.line_count - end_y;
+        for (0..delta) |i| {
             buffer.lines[start_y + 1 + i] = buffer.lines[end_y + 1 + i];
         }
 
@@ -822,15 +861,26 @@ fn next_char(core: *Wayland) !void {
 
         place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y });
     } else {
-        if (buffer.cursor.x != buffer.lines[buffer.cursor.y].char_count) {
+        if (buffer.cursor.x < buffer.lines[buffer.cursor.y].char_count) {
             place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y });
-        } else if (buffer.cursor.y < buffer.line_count) {
+        } else if (buffer.cursor.y + 1 < buffer.line_count) {
             place_cursor(buffer, .{ 0, buffer.cursor.y + 1 });
         } else {
             return;
         }
     }
     try chars_update(core);
+}
+
+fn selection_mode(core: *Wayland) !void {
+    const buffer = &core.buffers[core.buffer_index];
+
+    buffer.selection_active = !buffer.selection_active;
+    if (!buffer.selection_active) {
+        buffer.selection.x = buffer.cursor.x;
+        buffer.selection.y = buffer.cursor.y;
+        core.update = true;
+    }
 }
 
 fn key_pressed(core: *Wayland, key: u32) !void {
@@ -848,6 +898,7 @@ fn key_pressed(core: *Wayland, key: u32) !void {
             'd' => core.last_fn = delete_selection,
             'f' => core.last_fn = next_char,
             'b' => core.last_fn = prev_char,
+            ' ' => core.last_fn = selection_mode,
             else => return,
         }
     } else if (core.alt) {
@@ -870,7 +921,6 @@ fn key_pressed(core: *Wayland, key: u32) !void {
     if (core.last_fn) |f| {
         try f(core);
     }
-
 
     core.last_fetch_delay = try Instant.now();
     std.debug.print("time elapsed: {} ns\n", .{core.last_fetch_delay.since(start)});
