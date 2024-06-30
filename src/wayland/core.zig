@@ -541,7 +541,7 @@ fn save_buffer(core: *Wayland) !void {
 
     defer file.close();
 
-    _ = try file.write(content);
+    _ = try file.write(content[0..index - 1]);
 }
 
 fn execute_command(core: *Wayland) !void {
@@ -803,7 +803,7 @@ fn delete_selection(core: *Wayland) !void {
         var end = buffer.cursor.x + buffer.selection.x - start;
         const line = &core.mode_line.line;
 
-        if (end < line.char_count) {
+        if (end <= line.char_count) {
             end += 1;
         }
 
@@ -924,6 +924,38 @@ fn selection_mode(core: *Wayland) !void {
     }
 }
 
+fn scroll_down(core: *Wayland) !void {
+    const buffer = &core.buffers[core.buffer_index];
+
+    const add = (core.rows - 1) / 2;
+    if (buffer.offset[1] + add >= buffer.line_count - 2) return;
+    buffer.offset[1] += add;
+
+    if (buffer.cursor.y < buffer.offset[1]) {
+        place_cursor(buffer, .{ 0, buffer.offset[1] });
+    }
+
+    try chars_update(core);
+}
+
+fn scroll_up(core: *Wayland) !void {
+    const buffer = &core.buffers[core.buffer_index];
+
+    const sub = (core.rows - 1) / 2;
+    if (buffer.offset[1] < sub) {
+        if (buffer.offset[1] == 0) return;
+        buffer.offset[1] = 0;
+    } else {
+        buffer.offset[1] -= sub;
+    }
+
+    if (buffer.cursor.y > buffer.offset[1] + core.rows - 2) {
+        buffer.cursor.y = buffer.offset[1] + core.rows - 2;
+    }
+
+    try chars_update(core);
+}
+
 fn key_pressed(core: *Wayland, key: u32) !void {
     const start = try Instant.now();
 
@@ -939,12 +971,14 @@ fn key_pressed(core: *Wayland, key: u32) !void {
             'd' => core.last_fn = delete_selection,
             'f' => core.last_fn = next_char,
             'b' => core.last_fn = prev_char,
+            'v' => core.last_fn = scroll_down,
             ' ' => core.last_fn = selection_mode,
             else => return,
         }
     } else if (core.alt) {
         switch (char) {
             'x' => core.last_fn = command_mode,
+            'v' => core.last_fn = scroll_up,
             else => return,
         }
     } else {
