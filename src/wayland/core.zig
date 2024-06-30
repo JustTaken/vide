@@ -72,6 +72,7 @@ const Buffer = struct {
 
 const Line = struct {
     content: []u8,
+    indent: u32,
     char_count: u32,
 };
 
@@ -178,6 +179,7 @@ fn buffer_init(allocator: Allocator) !Buffer {
     buffer.lines[0] = Line {
         .content = try allocator.alloc(u8, 50),
         .char_count = 0,
+        .indent = 0,
     };
 
     buffer.cursor = Cursor {
@@ -198,6 +200,7 @@ fn mode_line_init(allocator: Allocator) !ModeLine {
         .line = Line {
             .content = try allocator.alloc(u8, 50),
             .char_count = 0,
+            .indent = 0,
         },
         .cursor = Cursor {
             .x = 0,
@@ -440,6 +443,7 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
             var line = &buffer.lines[0];
             line.char_count = 0;
             line.content = try core.allocator.alloc(u8, 50);
+            var indent_flag = false;
 
             for (0..len) |i| {
                 if (buffer.line_count >= buffer.lines.len) {
@@ -459,8 +463,15 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
                     line.content = try core.allocator.alloc(u8, 50);
                     line.char_count = 0;
                     buffer.line_count += 1;
+                    indent_flag = false;
 
                     continue;
+                }
+
+                if (content[i] != ' ') {
+                    indent_flag = true;
+                } else if (!indent_flag) {
+                    line.indent += 1;
                 }
 
                 if (line.content.len <= line.char_count) {
@@ -543,7 +554,6 @@ fn save_buffer(core: *Wayland) !void {
     }
 
     const file = try std.fs.cwd().openFile(buffer.name, .{ .mode = .write_only, });
-
     defer file.close();
 
     _ = try file.write(content[0..index - 1]);
@@ -615,19 +625,24 @@ fn enter(core: *Wayland) !void {
 
     const previous_line = &buffer.lines[buffer.cursor.y - 1];
     const current_line = &buffer.lines[buffer.cursor.y];
-    const count = math.max(50, previous_line.char_count - buffer.cursor.x);
+    const count = math.max(50, previous_line.char_count - buffer.cursor.x + previous_line.indent);
 
-    current_line.char_count = previous_line.char_count - buffer.cursor.x;
+    current_line.char_count = previous_line.char_count - buffer.cursor.x + previous_line.indent;
     current_line.content = try core.allocator.alloc(u8, count);
+    current_line.indent = previous_line.indent;
 
     for (buffer.cursor.x..previous_line.char_count) |i| {
-        current_line.content[i - buffer.cursor.x] = previous_line.content[i];
+        current_line.content[i - buffer.cursor.x + current_line.indent] = previous_line.content[i];
+    }
+
+    for (0..current_line.indent) |k| {
+        current_line.content[k] = ' ';
     }
 
     previous_line.char_count = buffer.cursor.x;
 
     buffer.line_count += 1;
-    place_cursor(buffer, .{ 0, buffer.cursor.y });
+    place_cursor(buffer, .{ current_line.indent, buffer.cursor.y });
 
     check_row_offset(buffer, core.rows - 1);
     buffer.offset[0] = 0;
@@ -660,9 +675,34 @@ fn tab(core: *Wayland) !void {
         line.content[i] = ' ';
     }
 
+
     place_cursor(buffer, .{ buffer.cursor.x + TAB, buffer.cursor.y });
+    line.indent += TAB;
     line.char_count += TAB;
     check_col_offset(buffer, core.cols);
+    try chars_update(core);
+}
+
+fn back_tab(core: *Wayland) !void {
+    const buffer = &core.buffers[core.buffer_index];
+    const line = &buffer.lines[buffer.cursor.y];
+    var remove_from_start: u32 = TAB;
+
+    if (line.indent == 0) {
+        return;
+    } else if (line.indent < TAB) {
+        remove_from_start = line.indent;
+    }
+
+    for (remove_from_start..line.char_count) |i| {
+        line.content[i - remove_from_start] = line.content[i];
+    }
+
+    line.char_count -= remove_from_start;
+    line.indent -= remove_from_start;
+    place_cursor(buffer, .{ buffer.cursor.x - remove_from_start, buffer.cursor.y });
+
+    std.debug.print("back tab\n", .{});
     try chars_update(core);
 }
 
@@ -978,6 +1018,8 @@ fn key_pressed(core: *Wayland, key: u32) !void {
             'b' => core.last_fn = prev_char,
             'v' => core.last_fn = scroll_down,
             ' ' => core.last_fn = selection_mode,
+            '>' => core.last_fn = tab,
+            '<' => core.last_fn = back_tab,
             else => return,
         }
     } else if (core.alt) {
