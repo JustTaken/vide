@@ -1157,7 +1157,7 @@ pub fn painter_init(
 
     var plain_elements_texture: [256]u8 = undefined;
     for (0..256) |i| {
-        plain_elements_texture[i] = 255;
+        plain_elements_texture[i] = 100;
     }
 
     painter.general_texture = image_init(
@@ -1187,6 +1187,7 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
         if (wayland.is_selection_active(window)) {
             const lines = wayland.get_selected_lines(window);
             const selection_boundary = wayland.get_selection_boundary(window);
+            std.debug.print("selection: {d}\n", .{selection_boundary});
             const len = selection_boundary[3] + 1 - selection_boundary[1];
             var position_count: u32 = 0;
 

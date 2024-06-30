@@ -119,16 +119,29 @@ pub inline fn is_selection_active(core: *const Wayland) bool {
 pub inline fn get_selection_boundary(core: *const Wayland) [4]u32 {
     const buffer = &core.buffers[core.buffer_index];
 
-    const start_y = if (buffer.cursor.y < buffer.selection.y) buffer.cursor.y else buffer.selection.y;
-    const start_x = if (buffer.cursor.x < buffer.selection.x) buffer.cursor.x else buffer.selection.x;
-    const end_y = buffer.cursor.y + buffer.selection.y - start_y;
-    const end_x = buffer.cursor.x + buffer.selection.x - start_x;
+    const start: [2]u32 = blk: {
+        if (buffer.cursor.y == buffer.selection.y) {
+            if (buffer.cursor.x < buffer.selection.x) {
+                break :blk .{ buffer.cursor.x, buffer.cursor.y };
+            }
+
+            break :blk .{ buffer.selection.x, buffer.selection.y };
+        }
+
+        if (buffer.cursor.y < buffer.selection.y) {
+            break :blk .{ buffer.cursor.x, buffer.cursor.y };
+        }
+
+        break :blk .{ buffer.selection.x, buffer.selection.y };
+    };
+
+    const end: [2]u32 = .{ buffer.cursor.x + buffer.selection.x - start[0], buffer.cursor.y + buffer.selection.y - start[1] };
 
     return .{
-        start_x,
-        start_y,
-        end_x,
-        end_y,
+        start[0],
+        start[1],
+        end[0],
+        end[1],
     };
 }
 
@@ -398,6 +411,7 @@ fn hash(string: []const u8) u32 {
 
 const OPEN = "open";
 const BUFFER = "buffer";
+const SAVE = "save";
 
 fn open_file(core: *Wayland, file_path: []const u8) !void {
     open_buffer(core, file_path) catch {
@@ -506,26 +520,52 @@ fn open_buffer(core: *Wayland, buffer_name: []const u8) !void {
     }
 }
 
+fn save_buffer(core: *Wayland) !void {
+    const buffer = &core.buffers[core.buffer_index];
+    var content = try core.allocator.alloc(u8, buffer.line_count * 50);
+    defer core.allocator.free(content);
+    var index: u32 = 0;
+    for (0..buffer.line_count) |i| {
+        const line = &buffer.lines[i];
+        if (content.len < buffer.lines[i].char_count + index + 1) {
+            content = try core.allocator.realloc(content, content.len * 2);
+        }
+
+        copy(u8, line.content[0..line.char_count], content[index..]);
+        index += line.char_count + 1;
+
+        content[index - 1] = '\n';
+    }
+
+    const file = try std.fs.cwd().openFile(buffer.name, .{ .mode = .write_only, });
+
+    defer file.close();
+
+    _ = try file.write(content);
+}
+
 fn execute_command(core: *Wayland) !void {
     const line = core.mode_line.line;
     const len = line.char_count;
 
     var argument_start: u32 = len;
+    var command = line.content[0..len];
 
     for (0..len) |i| {
         if (line.content[i] == ' ') {
             argument_start = @intCast(i + 1);
+            command = line.content[0..i];
             break;
         }
     }
 
-    const command = line.content[0..argument_start - 1];
     const argument = line.content[argument_start..len];
     const h = hash(command);
 
     switch (h) {
         hash(OPEN) => try open_file(core, argument),
         hash(BUFFER) => try open_buffer(core, argument),
+        hash(SAVE) => try save_buffer(core),
         else => std.debug.print("alguma outra coisa\n", .{}),
     }
 }
@@ -876,6 +916,7 @@ fn selection_mode(core: *Wayland) !void {
     const buffer = &core.buffers[core.buffer_index];
 
     buffer.selection_active = !buffer.selection_active;
+
     if (!buffer.selection_active) {
         buffer.selection.x = buffer.cursor.x;
         buffer.selection.y = buffer.cursor.y;
