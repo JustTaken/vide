@@ -5,6 +5,7 @@ layout(location = 1) out vec2 frag_texture_coords;
 
 layout(location = 0) in vec2 texture_coords;
 layout(location = 1) in uvec2 position;
+layout(location = 2) in uvec3 color;
 
 vec2[4] vertices = {{-1.0, -1.0}, {1.0, -1.0}, {-1.0, 1.0}, {1.0, 1.0}};
 
@@ -20,6 +21,6 @@ void main() {
 
   gl_Position = vec4(vertex_position, 0.0, 1.0);
 
-  frag_color = vec3(1.0);
+  frag_color = vec3(color) * 0.04;
   frag_texture_coords = texture_coords;
 }

@@ -423,6 +423,11 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
             defer file.close();
 
             const end_pos = try file.getEndPos();
+            if (end_pos >= 10000) {
+                std.debug.print("File too big\n", .{});
+                return;
+            }
+
             const content = try core.allocator.alloc(u8, end_pos);
             defer core.allocator.free(content);
 
