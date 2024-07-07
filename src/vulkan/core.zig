@@ -144,17 +144,9 @@ const CommandPool = struct {
     allocator: std.mem.Allocator,
 };
 
-const D: type = u32;
-
-const CharType = struct {
+const TextureData = struct {
     positions: Buffer,
-    dst: [][5]D,
-    capacity: u32,
-};
-
-const General = struct {
-    positions: Buffer,
-    dst: [][5]D,
+    dst: [][5]u32,
     capacity: u32,
 };
 
@@ -163,11 +155,11 @@ pub const Painter = struct {
     uniform: Uniform,
 
     char_coords: Buffer,
-    chars: []CharType,
+    chars: []TextureData,
     char_texture: Image,
     char_texture_descriptor: TextureDescriptor,
 
-    plain_elements: General,
+    plain_elements: TextureData,
 
     general_coords: Buffer,
     general_texture: Image,
@@ -1084,7 +1076,7 @@ pub fn painter_init(
     const glyph_height = truetype.normalized_height(font);
 
     var coords: [CHAR_COUNT][4][2]f32 = undefined;
-    painter.chars = try allocator.alloc(CharType, CHAR_COUNT);
+    painter.chars = try allocator.alloc(TextureData, CHAR_COUNT);
     painter.allocator = allocator;
 
     const initial_allocation_count: u32 = 10;
@@ -1099,14 +1091,14 @@ pub fn painter_init(
         };
 
         painter.chars[i].positions = buffer_init(
-            [5]D,
+            [5]u32,
             device,
             c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             initial_allocation_count
         );
 
-        _ = device.vkMapMemory(device.handle, painter.chars[i].positions.memory, 0, initial_allocation_count * @sizeOf([5]D), 0, @ptrCast(&painter.chars[i].dst));
+        _ = device.vkMapMemory(device.handle, painter.chars[i].positions.memory, 0, initial_allocation_count * @sizeOf([5]u32), 0, @ptrCast(&painter.chars[i].dst));
         painter.chars[i].capacity = initial_allocation_count;
         painter.chars[i].dst.len = 0;
     }
@@ -1119,14 +1111,14 @@ pub fn painter_init(
     };
 
     painter.plain_elements.positions = buffer_init(
-        [5]D,
+        [5]u32,
         device,
         c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         10
     );
 
-    _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, 10 * @sizeOf([5]D), 0, @ptrCast(&painter.plain_elements.dst));
+    _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, 10 * @sizeOf([5]u32), 0, @ptrCast(&painter.plain_elements.dst));
     painter.plain_elements.dst.len = 0;
     painter.plain_elements.capacity = 10;
 
@@ -1219,7 +1211,7 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
                 buffer_deinit(device, &painter.plain_elements.positions);
 
                 painter.plain_elements.positions = buffer_init(
-                    [5]D,
+                    [5]u32,
                     device,
                     c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -1227,7 +1219,7 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
                 );
 
                 painter.plain_elements.capacity = position_count;
-                _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, (1 + position_count) * @sizeOf([2]D), 0, @ptrCast(&painter.plain_elements.dst));
+                _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, (1 + position_count) * @sizeOf([2]u32), 0, @ptrCast(&painter.plain_elements.dst));
             }
 
             painter.plain_elements.dst.len += position_count;
@@ -1273,8 +1265,8 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
 
 fn update_painter(device: *const DeviceDispatch, painter: *Painter, window: *const Window) void {
     for (0..CHAR_COUNT) |i| {
-        const data = wayland.get_positions(window, i);
-        const len: u32 = @intCast(data.len);
+        const data = wayland.get_char_data(window, i);
+        const len: u32 = @intCast(data.pos.len);
         painter.chars[i].dst.len = len;
 
         if (len == 0) continue;
@@ -1283,7 +1275,7 @@ fn update_painter(device: *const DeviceDispatch, painter: *Painter, window: *con
             buffer_deinit(device, &painter.chars[i].positions);
 
             painter.chars[i].positions = buffer_init(
-                [5]D,
+                [5]u32,
                 device,
                 c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                 c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -1291,11 +1283,11 @@ fn update_painter(device: *const DeviceDispatch, painter: *Painter, window: *con
             );
 
             painter.chars[i].capacity = len;
-            _ = device.vkMapMemory(device.handle, painter.chars[i].positions.memory, 0, len * @sizeOf([5]D), 0, @ptrCast(&painter.chars[i].dst));
+            _ = device.vkMapMemory(device.handle, painter.chars[i].positions.memory, 0, len * @sizeOf([5]u32), 0, @ptrCast(&painter.chars[i].dst));
         }
 
         for (0..len) |k| {
-            painter.chars[i].dst[k] = data[k];
+            painter.chars[i].dst[k] = data.pos[k];
         }
     }
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const buffer = @import("buffer.zig");
 const util = @import("util.zig");
 const wayland = @import("core.zig");
+const highlight = @import("highlight.zig");
 const Line = buffer.Line;
 const Cursor = buffer.Cursor;
 const Wayland = wayland.Wayland;
@@ -40,7 +41,7 @@ pub fn update_mode_line(core: *Wayland) !void {
     const buff = &core.buffers[core.buffer_index];
     const rows = core.rows - 1;
     const cols = core.cols - 1;
-    const color: [3]u32 = .{ 0, 0, 200 };
+    const color = highlight.get_id_color(0);
 
     if (core.mode_line.mode == .Command) {
         {

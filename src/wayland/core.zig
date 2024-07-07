@@ -104,15 +104,6 @@ pub inline fn get_selection_boundary(core: *const Wayland) [2]buffer.Cursor {
     }
 
     return .{ buff.selection, buff.cursor };
-
-    // const end: [2]u32 = .{ buff.cursor.x + buff.selection.x - start[0], buff.cursor.y + buff.selection.y - start[1] };
-
-    // return .{
-    //     start[0],
-    //     start[1],
-    //     end[0],
-    //     end[1],
-    // };
 }
 
 pub inline fn get_selected_lines(core: *const Wayland) []buffer.Line {
@@ -121,8 +112,8 @@ pub inline fn get_selected_lines(core: *const Wayland) []buffer.Line {
     return buff.lines;
 }
 
-pub inline fn get_positions(core: *const Wayland, index: usize) [][5]u32 {
-    return core.chars[index].pos;
+pub inline fn get_char_data(core: *const Wayland, index: usize) Char {
+    return core.chars[index];
 }
 
 pub inline fn get_offset(core: *const Wayland) [2]u32 {
@@ -137,7 +128,7 @@ inline fn reset_chars(core: *Wayland) void {
     }
 }
 
-pub inline fn push_char(core: *Wayland, index: u32, pos: [2]u32, color: [3]u32) !void {
+pub inline fn push_char(core: *Wayland, index: u32, pos: [2]u32, color: highlight.Color) !void {
     @setRuntimeSafety(false);
 
     const char: *Char = &core.chars[index];
@@ -153,10 +144,11 @@ pub inline fn push_char(core: *Wayland, index: u32, pos: [2]u32, color: [3]u32) 
         char.pos.ptr = new.ptr;
     }
 
+    const rgb = highlight.get_rgb(color);
     char.pos.len += 1;
-    char.pos[len] = . {
+    char.pos[len] = .{
         pos[0], pos[1],
-        color[0], color[1], color[2]
+        rgb[0], rgb[1], rgb[2]
     };
 }
 
@@ -164,12 +156,19 @@ pub fn chars_update(
     core: *Wayland,
 ) !void {
     @setRuntimeSafety(false);
+    reset_chars(core);
 
     const buf: *buffer.Buffer = &core.buffers[core.buffer_index];
-    reset_chars(core);
+    const id_ranges = &buf.highlight.id_ranges;
+    id_ranges.last_range_asked = 0;
+
+    // if (buf.highlight.on) {
+    //     std.debug.print("id ranges: {any}\n", .{id_ranges.elements[0..id_ranges.count]});
+    // }
 
     const y_max = buf.offset[1] + core.rows - 1;
     const line_max = math.min(y_max, buf.line_count);
+    var current_range: ?*const highlight.IdRange = null;
 
     for (buf.offset[1]..line_max) |i| {
         if (buf.lines[i].char_count <= buf.offset[0]) continue;
@@ -182,7 +181,25 @@ pub fn chars_update(
             if (index == 0) continue;
 
             const position: [2]u32 = .{ @intCast(j - buf.offset[0]), @intCast(i - buf.offset[1]) };
-            try push_char(core, index, position, .{ 255, 255, 255 });
+
+            const color: highlight.Color = blk: {
+                if (!buf.highlight.on) break :blk highlight.get_id_color(0);
+
+                if (current_range) |range| {
+                    if (range.end.column > j and range.end.row >= i) break :blk highlight.get_id_color(range.id);
+                }
+
+                const range = highlight.get_id_range(id_ranges, i, j) catch {
+                    current_range = null;
+
+                    break :blk highlight.get_id_color(0);
+                };
+
+                current_range = range;
+                break :blk highlight.get_id_color(current_range.?.id);
+            };
+
+            try push_char(core, index, position, color);
         }
     }
 

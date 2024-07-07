@@ -96,7 +96,7 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
                     line.indent += 1;
                 }
 
-                if (line.content.len <= line.char_count) {
+                if (line.content.len <= line.char_count + 1) {
                     const new = try core.allocator.alloc(u8, line.content.len * 2);
 
                     util.copy(u8, line.content, new);
@@ -130,7 +130,7 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
             buff.name[i] = file_path[i];
         }
 
-        try highlight.init(buff);
+        try highlight.init(buff, core.allocator, core.rows);
 
         core.buffer_index = core.buffer_count;
         core.buffer_count += 1;
