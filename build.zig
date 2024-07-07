@@ -13,6 +13,11 @@ pub fn build(builder: *std.Build) void {
     main.linkSystemLibrary("dl");
     main.linkSystemLibrary("wayland-client");
     main.linkSystemLibrary("freetype");
+
+    main.addLibraryPath(.{ .src_path = .{ .owner = builder, .sub_path = "treesitter/tree-sitter-zig" } });
+    main.linkSystemLibrary("tree-sitter");
+    main.linkSystemLibrary("tree-sitter-zig");
+
     main.addCSourceFile(.{ .file = .{ .src_path = .{ .owner = builder, .sub_path = "assets/xdg-shell.c" } } });
     main.addIncludePath(.{ .src_path = .{ .owner = builder, .sub_path = "assets" } });
 

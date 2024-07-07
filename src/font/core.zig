@@ -69,8 +69,8 @@ inline fn from_fixed(fixed: isize) u32 {
 }
 
 inline fn add_glyph(
-    bitmap: *Bitmap, 
-    face: *const Face, 
+    bitmap: *Bitmap,
+    face: *const Face,
     position: Offset,
     code: u32
 ) void {

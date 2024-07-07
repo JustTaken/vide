@@ -1190,25 +1190,26 @@ pub fn painter_init(
 
 fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painter, window: *const Window) void {
     painter.plain_elements.dst.len = 1;
+    const offset = wayland.get_offset(window);
 
     blk: {
         if (wayland.is_selection_active(window)) {
             const lines = wayland.get_selected_lines(window);
             const selection_boundary = wayland.get_selection_boundary(window);
-            const len = selection_boundary[3] + 1 - selection_boundary[1];
+            const len = selection_boundary[1].y + 1 - selection_boundary[0].y;
             var position_count: u32 = 0;
 
             if (len == 1) {
-                if (selection_boundary[2] - selection_boundary[0] == 0) break :blk;
-                position_count += selection_boundary[2] - selection_boundary[0] + 1;
+                if (selection_boundary[1].x - selection_boundary[0].x == 0) break :blk;
+                position_count += selection_boundary[1].x - selection_boundary[0].x + 1;
             } else {
                 for (0..len) |i| {
                     if (i == 0) {
-                        position_count += lines[i + selection_boundary[1]].char_count - selection_boundary[0] + 1;
+                        position_count += lines[i + selection_boundary[0].y].char_count - selection_boundary[0].x + 1;
                     } else if (i == len - 1) {
-                        position_count += selection_boundary[2] + 1;
+                        position_count += selection_boundary[1].x + 1;
                     } else {
-                        position_count += lines[i + selection_boundary[1]].char_count + 1;
+                        position_count += lines[i + selection_boundary[0].y].char_count + 1;
                     }
                 }
             }
@@ -1233,10 +1234,10 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
 
             var index: u32 = 1;
             if (len == 1) {
-                for (selection_boundary[0]..selection_boundary[2] + 1) |j| {
+                for (selection_boundary[0].x..selection_boundary[1].x + 1) |j| {
                     const jj: u32 = @intCast(j);
                     painter.plain_elements.dst[index] = .{
-                        jj, selection_boundary[1],
+                        jj - offset[0], selection_boundary[0].y - offset[1],
                         255, 255, 255,
                     };
                     index += 1;
@@ -1244,37 +1245,20 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
             } else {
                 for (0..len) |i| {
                     const boundary: [2]u32 = condition: {
-                        if (i == 0) break :condition .{ selection_boundary[0], lines[selection_boundary[1]].char_count };
-                        if (i == len - 1) break :condition .{ 0, selection_boundary[2] };
-                        break :condition .{ 0, lines[selection_boundary[1] + i].char_count };
+                        if (i == 0) break :condition .{ selection_boundary[0].x, lines[selection_boundary[0].y].char_count };
+                        if (i == len - 1) break :condition .{ 0, selection_boundary[1].x };
+                        break :condition .{ 0, lines[selection_boundary[0].y + i].char_count };
                     };
 
                     const ii: u32 = @intCast(i);
                     for (boundary[0]..boundary[1] + 1) |j| {
                         const jj: u32 = @intCast(j);
                         painter.plain_elements.dst[index] = .{
-                            jj, ii + selection_boundary[1],
+                            jj - offset[0], ii + selection_boundary[0].y - offset[1],
                             0, 255, 255
                         };
                         index += 1;
                     }
-
-                    // if (i == 0) {
-                    //     for (selection_boundary[0]..lines[selection_boundary[1]].char_count + 1) |j| {
-                    //     }
-                    // } else if (i == len - 1) {
-                    //     for (0..selection_boundary[2] + 1) |j| {
-                    //         const jj: u32 = @intCast(j);
-                    //         painter.plain_elements.dst[index] = .{ jj, ii + selection_boundary[1] };
-                    //         index += 1;
-                    //     }
-                    // } else {
-                    //     for (0..lines[selection_boundary[1] + i].char_count + 1) |j| {
-                    //         const jj: u32 = @intCast(j);
-                    //         painter.plain_elements.dst[index] = .{ jj, ii + selection_boundary[1] };
-                    //         index += 1;
-                    //     }
-                    // }
                 }
             }
         }
@@ -1282,7 +1266,7 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
 
     const cursor_data = wayland.get_cursor_position(window);
     painter.plain_elements.dst[0] = .{
-        cursor_data[0], cursor_data[1],
+        cursor_data[0] - offset[0], cursor_data[1] - offset[1],
         255, 255, 255
     };
 }
@@ -1311,10 +1295,7 @@ fn update_painter(device: *const DeviceDispatch, painter: *Painter, window: *con
         }
 
         for (0..len) |k| {
-            painter.chars[i].dst[k] = .{
-                data[k][0], data[k][1],
-                255, 255, 255
-            };
+            painter.chars[i].dst[k] = data[k];
         }
     }
 }
@@ -1428,7 +1409,7 @@ fn sampler_init(device: *const DeviceDispatch) c.VkSampler {
 }
 
 pub fn sync(device: *const DeviceDispatch, swapchain: *const Swapchain) void {
-    std.time.sleep(1000000 * 100);
+    std.time.sleep(1000000 * 20);
     _ = device.vkWaitForFences(device.handle, 1, &swapchain.in_flight, c.VK_TRUE, 0xFFFFFF);
     _ = device.vkQueueWaitIdle(device.queues[0]);
 }

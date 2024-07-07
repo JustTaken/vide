@@ -3,6 +3,15 @@ const wayland = @import("wayland/core.zig");
 const vulkan = @import("vulkan/core.zig");
 const true_type = @import("font/core.zig");
 
+// const highlight = @import("wayland/highlight.zig");
+
+// pub fn main() !void {
+//     var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
+//     const allocator = gpa.allocator();
+//     const h = try highlight.init();
+//     highlight.deinit(&h);
+// }
+
 pub fn main() !void {
   var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
   const allocator = gpa.allocator();
