@@ -7,11 +7,13 @@ const util = @import("util.zig");
 
 pub const c = @cImport({
     @cInclude("tree_sitter/api.h");
+    @cInclude("dlfcn.h");
 });
 
-extern fn tree_sitter_zig() callconv(.C) ?*c.TSLanguage;
+const tree_lang = ?*const fn () callconv(.C) *c.TSLanguage;
 
 pub const Highlight = struct {
+    library: *anyopaque,
     on: bool,
     tree: *c.TSTree,
     parser: *c.TSParser,
@@ -189,7 +191,6 @@ fn read_from_buffer(payload: ?*anyopaque, _: u32, position: c.TSPoint, bytes_rea
     }
 
     bytes_read[0] = line.char_count + 1 - position.column;
-    // std.debug.print("len: {}\n", .{line.content.len});
     line.content[line.char_count] = '\n';
 
     return @ptrCast(line.content[position.column..]);
@@ -239,16 +240,56 @@ pub fn edit_tree(
     try fill_id_ranges(highlight, offset, rows);
 }
 
+fn get_language(highlight: *Highlight, lang_name: []const u8) !*c.TSLanguage {
+    var language: *c.TSLanguage = undefined;
+    var string_builder: [30]u8 = undefined;
+    var string_builder_len: usize = 0;
+
+    {
+        const extension = ".so";
+
+        util.copy(u8, lang_name, &string_builder);
+        util.copy(u8, extension, string_builder[lang_name.len..]);
+
+        string_builder[lang_name.len + extension.len] = 0;
+        string_builder_len = lang_name.len + extension.len + 1;
+    }
+
+    highlight.library = c.dlopen(&string_builder[0..string_builder_len][0], 1) orelse return error.LanguageLibraryLoading;
+
+    {
+        const prefix = "tree_sitter_";
+
+        util.copy(u8, prefix, &string_builder);
+        util.copy(u8, lang_name, string_builder[prefix.len..]);
+
+        string_builder[prefix.len + lang_name.len] = 0;
+        string_builder_len = prefix.len + lang_name.len + 1;
+
+        const function_pointer: tree_lang = @ptrCast(c.dlsym(highlight.library, &string_builder[0..string_builder_len][0]));
+        const f = function_pointer orelse return error.MissingFunctionPointer;
+
+        language = f();
+    }
+
+    return language;
+}
+
 pub fn init(
     buff: *Buffer,
     allocator: std.mem.Allocator,
-    rows: u32
-) !void {
-    buff.highlight.parser = c.ts_parser_new() orelse return error.ParserInit;
+    rows: u32,
+    lang_name: []const u8,
+) void {
+    buff.highlight.parser = c.ts_parser_new() orelse return;
 
-    const language = tree_sitter_zig();
+    const language = get_language(&buff.highlight, lang_name) catch |e| {
+        std.debug.print("no syntax highlight for {s} language, {}\n", .{lang_name, e});
+        return;
+    };
+
     const result = c.ts_parser_set_language(buff.highlight.parser, language);
-    if (!result) return error.SettingLanguage;
+    if (!result) return;
 
     buff.highlight.input = .{
         .payload = @ptrCast(@alignCast(buff)),
@@ -260,17 +301,19 @@ pub fn init(
         buff.highlight.parser,
         null,
         buff.highlight.input,
-    ) orelse return error.ParseTree;
+    ) orelse return;
 
     buff.highlight.id_ranges = .{
         .count = 0,
-        .elements = try allocator.alloc(IdRange, 50),
+        .elements = allocator.alloc(IdRange, 50) catch return,
         .last_range_asked = 0,
         .allocator = allocator,
     };
 
     buff.highlight.on = true;
-    try fill_id_ranges(&buff.highlight, buff.offset[1], buff.offset[1] + rows - 1);
+    fill_id_ranges(&buff.highlight, buff.offset[1], buff.offset[1] + rows - 1) catch {
+        buff.highlight.on = false;
+    };
 }
 
 pub fn fill_id_ranges(
@@ -278,7 +321,6 @@ pub fn fill_id_ranges(
     offset: u32,
     rows: u32,
 ) !void {
-    if (!core.on) return;
     const root_node = c.ts_tree_root_node(core.tree);
     var cursor = c.ts_tree_cursor_new(root_node);
 
@@ -292,36 +334,40 @@ pub fn fill_id_ranges(
     }
 
     core.id_ranges.count = 0;
-    core.id_ranges.last_range_asked = 0;
+
     outer: while (true) {
+
+        const node = c.ts_tree_cursor_current_node(&cursor);
+        const string = c.ts_node_string(node);
+        const id = c.ts_node_symbol(node);
+        const start = c.ts_node_start_point(node);
+        const end = c.ts_node_end_point(node);
+
+        std.debug.print("id: {}, {s}, start: {} {}, end: {} {}\n", .{id, string, start.row, start.column, end.row, end.column});
         if (c.ts_tree_cursor_goto_first_child(&cursor)) continue;
 
         {
-            const node = c.ts_tree_cursor_current_node(&cursor);
-            const start = c.ts_node_start_point(node);
+            // const node = c.ts_tree_cursor_current_node(&cursor);
  
             if (start.row > offset + rows) return;
 
-            const end = c.ts_node_end_point(node);
-            const id = c.ts_node_symbol(node);
+            // const id = c.ts_node_symbol(node);
 
             try push_id_range(&core.id_ranges, id, start, end);
-
-            // const string = c.ts_node_string(node);
-
-            // std.debug.print("string: {s}, id: {}\n", .{string, id});
         }
 
         while (!c.ts_tree_cursor_goto_next_sibling(&cursor)) {
             if (!c.ts_tree_cursor_goto_parent(&cursor)) break :outer;
         }
     }
-
 }
 
 pub fn deinit(core: *Highlight) void {
     core.id_ranges.allocator.free(core.id_ranges.elements);
+
     c.ts_tree_delete(core.tree);
     c.ts_parser_delete(core.parser);
+
+    _ = c.dlclose(core.library);
 }
 

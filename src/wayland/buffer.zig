@@ -37,8 +37,6 @@ pub inline fn place_cursor(buffer: *Buffer, position: [2]u32, offset: u32,) void
     buffer.cursor.y = position[1];
     buffer.cursor.byte_offset = offset;
 
-    std.debug.print("placing cursor: {}\n", .{offset});
-
     if (!buffer.selection_active) {
         buffer.selection.x = buffer.cursor.x;
         buffer.selection.y = buffer.cursor.y;
@@ -676,6 +674,7 @@ pub fn scroll_down(core: *Wayland) !void {
         }
 
         place_cursor(buffer, .{ 0, buffer.offset[1] }, byte_offset - buffer.cursor.x);
+        buffer.offset[0] = 0;
     }
 
     if (buffer.highlight.on) {
@@ -709,6 +708,7 @@ pub fn scroll_up(core: *Wayland) !void {
         }
 
         place_cursor(buffer, .{ 0, buffer.offset[1] + rows }, byte_offset + buffer.cursor.x);
+        buffer.offset[0] = 0;
     }
 
     if (buffer.highlight.on) {

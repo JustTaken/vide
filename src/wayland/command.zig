@@ -130,7 +130,14 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
             buff.name[i] = file_path[i];
         }
 
-        try highlight.init(buff, core.allocator, core.rows);
+        {
+            var last_dot = file_path.len;
+            for (0..file_path.len) |i| {
+                if (file_path[i] == '.') last_dot = i;
+            }
+
+            highlight.init(buff, core.allocator, core.rows, file_path[last_dot + 1..]);
+        }
 
         core.buffer_index = core.buffer_count;
         core.buffer_count += 1;
