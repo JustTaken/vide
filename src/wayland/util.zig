@@ -1,4 +1,4 @@
-pub inline fn copy(T: type, src: []const T, dst: []T) void {
+pub fn copy(T: type, src: []const T, dst: []T) void {
     @setRuntimeSafety(false);
 
     const len = src.len;

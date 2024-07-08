@@ -62,24 +62,94 @@ pub inline fn get_id_range(id_ranges: *IdRangeVec, line: usize, column: usize) !
     return error.NotFound;
 }
 
+const Id = enum(u16) {
+    Const = 14,
+    At = 150,
+    Pub = 2,
+    Fn = 12,
+    Equal = 17,
+    If = 56,
+    Return = 28,
+    Comment = 121,
+    Buildin = 40,
+    Var = 15,
+    Integer = 244,
+    While = 57,
+    And = 86,
+    For = 58,
+};
+
 pub inline fn get_id_color(id: u16) Color {
     return switch (id) {
-        14 => Color {
+        @intFromEnum(Id.Const) => Color {
             .red = 0,
             .green = 0,
             .blue = 255,
         },
-
-        250 => Color {
+        @intFromEnum(Id.For) => Color {
+            .red = 70,
+            .green = 0,
+            .blue = 4,
+        },
+        @intFromEnum(Id.And) => Color {
             .red = 10,
-            .green = 100,
+            .green = 50,
+            .blue = 20,
+        },
+        @intFromEnum(Id.While) => Color {
+            .red = 70,
+            .green = 70,
+            .blue = 20,
+        },
+        @intFromEnum(Id.Integer) => Color {
+            .red = 50,
+            .green = 250,
+            .blue = 70,
+        },
+        @intFromEnum(Id.Var) => Color {
+            .red = 0,
+            .green = 0,
+            .blue = 255,
+        },
+        @intFromEnum(Id.Buildin) => Color {
+            .red = 100,
+            .green = 200,
             .blue = 0,
         },
-
-        else => Color {
+        @intFromEnum(Id.Comment) => Color {
+            .red = 10,
+            .green = 10,
+            .blue = 10,
+        },
+        @intFromEnum(Id.Pub) => Color {
             .red = 200,
+            .green = 0,
+            .blue = 255,
+        },
+        @intFromEnum(Id.Equal) => Color {
+            .red = 0,
+            .green = 255,
+            .blue = 255,
+        },
+        @intFromEnum(Id.Return) => Color {
+            .red = 255,
+            .green = 0,
+            .blue = 0,
+        },
+        @intFromEnum(Id.If) => Color {
+            .red = 0,
             .green = 200,
-            .blue = 200,
+            .blue = 100,
+        },
+        @intFromEnum(Id.Fn) => Color {
+            .red = 10,
+            .green = 100,
+            .blue = 50,
+        },
+        else => Color {
+            .red = 255,
+            .green = 255,
+            .blue = 255,
         },
     };
 }
@@ -119,6 +189,7 @@ fn read_from_buffer(payload: ?*anyopaque, _: u32, position: c.TSPoint, bytes_rea
     }
 
     bytes_read[0] = line.char_count + 1 - position.column;
+    // std.debug.print("len: {}\n", .{line.content.len});
     line.content[line.char_count] = '\n';
 
     return @ptrCast(line.content[position.column..]);
@@ -235,6 +306,10 @@ pub fn fill_id_ranges(
             const id = c.ts_node_symbol(node);
 
             try push_id_range(&core.id_ranges, id, start, end);
+
+            // const string = c.ts_node_string(node);
+
+            // std.debug.print("string: {s}, id: {}\n", .{string, id});
         }
 
         while (!c.ts_tree_cursor_goto_next_sibling(&cursor)) {
@@ -250,68 +325,3 @@ pub fn deinit(core: *Highlight) void {
     c.ts_parser_delete(core.parser);
 }
 
-// fn modify_buffer(buff: *Buffer) void {
-//     buff.line_count += 1;
-
-//     var offset: u32 = 0;
-//     for (0..5) |i| {
-//         const line = &buff.lines[i];
-//         line.char_count = 0;
-//         line.indent = 0;
-
-//         while(FINAL[offset] != '\n') {
-//             line.content[line.char_count] = FINAL[offset];
-//             line.char_count += 1;
-//             offset += 1;
-//         }
-
-//         offset += 1;
-//     }
-
-// }
-
-// pub fn buffer_init(allocator: std.mem.Allocator) !Buffer {
-//     var buff: Buffer = undefined;
-//     const name = "scratch";
-
-//     buff.name = try allocator.alloc(u8, name.len);
-//     buff.lines = try allocator.alloc(Line, 5);
-//     buff.offset = .{ 0, 0 };
-//     buff.line_count = 4;
-//     buff.selection_active = false;
-//     buff.selection = Cursor {
-//         .x = 0,
-//         .y = 0,
-//         .byte_offset = 0,
-//     };
-
-//     var offset: u32 = 0;
-//     for (0..buff.line_count) |i| {
-//         const line = &buff.lines[i];
-//         line.content = try allocator.alloc(u8, 50);
-//         line.char_count = 0;
-//         line.indent = 0;
-
-//         while(INITIAL[offset] != '\n') {
-//             line.content[line.char_count] = INITIAL[offset];
-//             line.char_count += 1;
-//             offset += 1;
-//         }
-
-//         offset += 1;
-//     }
-
-//     buff.lines[4].content = try allocator.alloc(u8 ,50);
-
-//     buff.cursor = Cursor {
-//         .x = 0,
-//         .y = 0,
-//         .byte_offset = 0,
-//     };
-
-//     for (0..name.len) |i| {
-//         buff.name[i] = name[i];
-//     }
-
-//     return buff;
-// }

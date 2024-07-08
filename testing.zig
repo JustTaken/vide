@@ -5,12 +5,11 @@ pub fn main() void {
     const maconha = "";
     const da_braba = true;
 
-    if (da_braba) {
-        if (meu_pau) {
-            return a;
-        } else if (mey_pau) {
-            return b;
-        }
-        return fudeu;
+    for (maocnha) |i| {
+      pega_na_minha_e_balanca(i);
     }
+}
+
+pub fn pega_na_minha_e_balanca(index: u32) {
+  std.debug.print("meu pinto esta gigantesco\n", .{});
 }

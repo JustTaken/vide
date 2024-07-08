@@ -37,6 +37,8 @@ pub inline fn place_cursor(buffer: *Buffer, position: [2]u32, offset: u32,) void
     buffer.cursor.y = position[1];
     buffer.cursor.byte_offset = offset;
 
+    std.debug.print("placing cursor: {}\n", .{offset});
+
     if (!buffer.selection_active) {
         buffer.selection.x = buffer.cursor.x;
         buffer.selection.y = buffer.cursor.y;
@@ -317,9 +319,9 @@ pub fn new_char(core: *Wayland) !void {
 }
 
 pub fn next_line(core: *Wayland) !void {
-    const buffer = &core.buffers[core.buffer_index];
     if (core.mode_line.mode == .Command) return;
 
+    const buffer = &core.buffers[core.buffer_index];
     if (buffer.cursor.y + 1 < buffer.line_count) {
         const y = buffer.cursor.y + 1;
         var x = buffer.cursor.x;
@@ -457,7 +459,7 @@ pub fn delete_selection(core: *Wayland) !void {
     var end = boundary[1];
 
     if (buffer.lines[end.y].char_count == end.x) {
-        if (buffer.line_count >= end.y) {
+        if (buffer.line_count > end.y + 1) {
             end.y += 1;
             end.x = 0;
             end.byte_offset += 1;
@@ -470,7 +472,7 @@ pub fn delete_selection(core: *Wayland) !void {
     const len = buffer.lines[end.y].char_count + start.x - end.x;
 
     if (buffer.lines[start.y].content.len <= len + 1) {
-        const new = try core.allocator.alloc(u8, len);
+        const new = try core.allocator.alloc(u8, 2 * len);
 
         const end_of_line = buffer.lines[end.y].char_count;
         util.copy(u8, buffer.lines[start.y].content[0..start.x], new);

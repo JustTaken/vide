@@ -47,7 +47,7 @@ fn open_file(core: *Wayland, file_path: []const u8) !void {
 
             const end_pos = try file.getEndPos();
             if (end_pos >= MAX_BYTES) {
-                std.debug.print("File too big\n", .{});
+                std.debug.print("File too big, max is {} bytes\n", .{MAX_BYTES});
                 return;
             }
 
@@ -151,8 +151,9 @@ fn open_buffer(core: *Wayland, buffer_name: []const u8) !void {
 fn save_buffer(core: *Wayland) !void {
     const buff = &core.buffers[core.buffer_index];
     var content = try core.allocator.alloc(u8, buff.line_count * 50);
-    defer core.allocator.free(content);
+
     var index: u32 = 0;
+
     for (0..buff.line_count) |i| {
         const line = &buff.lines[i];
         if (content.len < buff.lines[i].char_count + index + 1) {
@@ -165,10 +166,13 @@ fn save_buffer(core: *Wayland) !void {
         content[index - 1] = '\n';
     }
 
+
     const file = try std.fs.cwd().openFile(buff.name, .{ .mode = .write_only, });
-    defer file.close();
 
     _ = try file.write(content[0..index - 1]);
+
+    file.close();
+    core.allocator.free(content);
 }
 
 pub fn execute_command(core: *Wayland) !void {

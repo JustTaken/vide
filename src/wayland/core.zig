@@ -90,20 +90,44 @@ pub inline fn is_selection_active(core: *const Wayland) bool {
 
 pub inline fn get_selection_boundary(core: *const Wayland) [2]buffer.Cursor {
     const buff = &core.buffers[core.buffer_index];
+    var boundary: [2]buffer.Cursor = blk: {
+        if (buff.cursor.y == buff.selection.y) {
+            if (buff.cursor.x < buff.selection.x) {
+                break :blk .{ buff.cursor, buff.selection };
+            }
 
-    if (buff.cursor.y == buff.selection.y) {
-        if (buff.cursor.x < buff.selection.x) {
-            return .{ buff.cursor, buff.selection };
+            break :blk .{ buff.selection, buff.cursor };
         }
 
-        return .{ buff.selection, buff.cursor };
+        if (buff.cursor.y < buff.selection.y) {
+            break :blk .{ buff.cursor, buff.selection };
+        }
+
+        break :blk .{ buff.selection, buff.cursor };
+    };
+
+    if (core.mode_line.mode == .Command) {
+        boundary[0].x += buff.offset[0];
+        boundary[1].x += buff.offset[0];
+        boundary[0].y += buff.offset[1];
+        boundary[1].y += buff.offset[1];
+    } else {
+        if (boundary[0].y < buff.offset[1]) {
+            boundary[0].y = buff.offset[1];
+            boundary[0].x = 0;
+            // boundary[0].x = math.min(buff.offset[0], boundary[0].x);
+        }
+
+        const rows = core.rows - 1;
+        const cols = core.cols;
+        if (boundary[1].y > buff.offset[1] + rows - 1) {
+            boundary[1].y = buff.offset[1] + rows - 1;
+            boundary[0].x = math.min(buff.lines[boundary[1].y].char_count, buff.offset[0] + cols - 1);
+        }
     }
 
-    if (buff.cursor.y < buff.selection.y) {
-        return .{ buff.cursor, buff.selection };
-    }
+    return boundary;
 
-    return .{ buff.selection, buff.cursor };
 }
 
 pub inline fn get_selected_lines(core: *const Wayland) []buffer.Line {

@@ -2,6 +2,7 @@ const std = @import("std");
 const c = @import("../bind.zig").c;
 const truetype = @import("../font/core.zig");
 const wayland = @import("../wayland/core.zig");
+const math = @import("../math.zig");
 
 const Window = wayland.Wayland;
 const Font = truetype.TrueType;
@@ -1184,74 +1185,85 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
     painter.plain_elements.dst.len = 1;
     const offset = wayland.get_offset(window);
 
-    blk: {
-        if (wayland.is_selection_active(window)) {
-            const lines = wayland.get_selected_lines(window);
-            const selection_boundary = wayland.get_selection_boundary(window);
-            const len = selection_boundary[1].y + 1 - selection_boundary[0].y;
-            var position_count: u32 = 0;
+    if (wayland.is_selection_active(window)) {
+        const lines = wayland.get_selected_lines(window);
+        const selection_boundary = wayland.get_selection_boundary(window);
 
-            if (len == 1) {
-                if (selection_boundary[1].x - selection_boundary[0].x == 0) break :blk;
-                position_count += selection_boundary[1].x - selection_boundary[0].x + 1;
-            } else {
-                for (0..len) |i| {
-                    if (i == 0) {
-                        position_count += lines[i + selection_boundary[0].y].char_count - selection_boundary[0].x + 1;
-                    } else if (i == len - 1) {
-                        position_count += selection_boundary[1].x + 1;
-                    } else {
-                        position_count += lines[i + selection_boundary[0].y].char_count + 1;
-                    }
-                }
-            }
+        const len = selection_boundary[1].y + 1 - selection_boundary[0].y;
+        const cols = window.cols - 1;
+        const position_count: u32 = len * cols;
 
-            if (painter.plain_elements.capacity <= position_count + 1) {
-                _ = device.vkUnmapMemory(device.handle, painter.plain_elements.positions.memory);
-                buffer_deinit(device, &painter.plain_elements.positions);
+        // if (len == 1) {
+        //     if (selection_boundary[1].x - selection_boundary[0].x == 0) break :blk;
+        //     position_count += selection_boundary[1].x - selection_boundary[0].x + 1;
+        // } else {
+        //     for (0..len) |i| {
 
-                painter.plain_elements.positions = buffer_init(
-                    [5]u32,
-                    device,
-                    c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                    c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    position_count + 1,
-                );
+        //         if (i == 0) {
+        //             position_count += lines[i + selection_boundary[0].y].char_count - selection_boundary[0].x + 1;
+        //         } else if (i == len - 1) {
+        //             position_count += selection_boundary[1].x + 1;
+        //         } else {
+        //             position_count += lines[i + selection_boundary[0].y].char_count + 1;
+        //         }
+        //     }
+        // }
 
-                painter.plain_elements.capacity = position_count;
-                _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, (1 + position_count) * @sizeOf([2]u32), 0, @ptrCast(&painter.plain_elements.dst));
-            }
+        if (painter.plain_elements.capacity <= position_count + 1) {
+            _ = device.vkUnmapMemory(device.handle, painter.plain_elements.positions.memory);
+            buffer_deinit(device, &painter.plain_elements.positions);
 
-            painter.plain_elements.dst.len += position_count;
+            painter.plain_elements.positions = buffer_init(
+                [5]u32,
+                device,
+                c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                position_count,
+            );
 
-            var index: u32 = 1;
-            if (len == 1) {
-                for (selection_boundary[0].x..selection_boundary[1].x + 1) |j| {
-                    const jj: u32 = @intCast(j);
-                    painter.plain_elements.dst[index] = .{
-                        jj - offset[0], selection_boundary[0].y - offset[1],
-                        255, 255, 255,
+            painter.plain_elements.capacity = position_count;
+            _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, (1 + position_count) * @sizeOf([2]u32), 0, @ptrCast(&painter.plain_elements.dst));
+        }
+
+        // painter.plain_elements.dst.len += position_count;
+
+        var index: u32 = 1;
+        // if (len == 1) {
+        //     const max_start = math.max(selection_boundar[0].x, offset[0]);
+
+        //     for (max_start..selection_boundary[1].x + 1) |j| {
+        //         const jj: u32 = @intCast(j);
+        //         painter.plain_elements.dst[index] = .{
+        //             jj - offset[0], selection_boundary[0].y - offset[1],
+        //             255, 255, 255,
+        //         };
+        //         index += 1;
+        //     }
+        // } else {
+        for (0..len) |i| {
+            const boundary: [2]u32 = condition: {
+                if (i == 0) {
+                    break :condition .{
+                        math.max(offset[0], selection_boundary[0].x),
+                        if (len == 1) selection_boundary[1].x else lines[selection_boundary[0].y].char_count,
                     };
-                    index += 1;
                 }
-            } else {
-                for (0..len) |i| {
-                    const boundary: [2]u32 = condition: {
-                        if (i == 0) break :condition .{ selection_boundary[0].x, lines[selection_boundary[0].y].char_count };
-                        if (i == len - 1) break :condition .{ 0, selection_boundary[1].x };
-                        break :condition .{ 0, lines[selection_boundary[0].y + i].char_count };
-                    };
+                if (i == len - 1) break :condition .{ math.max(0, offset[0]), selection_boundary[1].x };
+                break :condition .{ math.max(0, offset[0]), lines[selection_boundary[0].y + i].char_count };
+            };
 
-                    const ii: u32 = @intCast(i);
-                    for (boundary[0]..boundary[1] + 1) |j| {
-                        const jj: u32 = @intCast(j);
-                        painter.plain_elements.dst[index] = .{
-                            jj - offset[0], ii + selection_boundary[0].y - offset[1],
-                            0, 255, 255
-                        };
-                        index += 1;
-                    }
-                }
+            const diff = boundary[1] - boundary[0] + 1;
+            painter.plain_elements.dst.len += diff;
+
+            const ii: u32 = @intCast(i);
+            for (boundary[0]..boundary[1] + 1) |j| {
+                const jj: u32 = @intCast(j);
+                painter.plain_elements.dst[index] = .{
+                    jj - offset[0], ii + selection_boundary[0].y - offset[1],
+                    0, 255, 255
+                };
+
+                index += 1;
             }
         }
     }
