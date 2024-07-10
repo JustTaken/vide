@@ -1,8 +1,9 @@
-const std = @import("std");
+const Builder = @import("std").Build;
 
-pub fn build(builder: *std.Build) void {
+pub fn build(builder: *Builder) void {
     const target = builder.standardTargetOptions(.{});
     const optimize = builder.standardOptimizeOption(.{});
+
     const main = builder.addExecutable(.{
         .name = "vide",
         .root_source_file = builder.path("src/main.zig"),
@@ -15,10 +16,14 @@ pub fn build(builder: *std.Build) void {
     main.linkSystemLibrary("freetype");
     main.linkSystemLibrary("tree-sitter");
 
-    // main.addLibraryPath(.{ .src_path = .{ .owner = builder, .sub_path = "assets/grammar" } });
+    scan_wayland_xml(builder, "private-code", "include/xdg-shell.c");
+    scan_wayland_xml(builder, "client-header", "include/xdg-shell.h");
+    
+    add_shader(builder, "vert");
+    add_shader(builder, "frag");
 
-    main.addCSourceFile(.{ .file = .{ .src_path = .{ .owner = builder, .sub_path = "assets/xdg-shell.c" } } });
-    main.addIncludePath(.{ .src_path = .{ .owner = builder, .sub_path = "assets" } });
+    main.addCSourceFile(.{ .file = .{ .src_path = .{ .owner = builder, .sub_path = "zig-out/include/xdg-shell.c" } } });
+    main.addIncludePath(.{ .src_path = .{ .owner = builder, .sub_path = "zig-out/include" } });
 
     builder.installArtifact(main);
 
@@ -27,14 +32,26 @@ pub fn build(builder: *std.Build) void {
 
     const run_step = builder.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+}
 
-    const exe_unit_tests = builder.addTest(.{
-        .root_source_file = builder.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+fn scan_wayland_xml(builder: *Builder, flag: []const u8, output: []const u8) void {
+    const scanner = builder.addSystemCommand(&.{"wayland-scanner"});
+
+    scanner.addArgs(&.{ flag, "assets/xdg-shell.xml" });
+    const out = scanner.addOutputFileArg(output);
+
+    builder.getInstallStep().dependOn(&builder.addInstallFileWithDir(out, .prefix, output).step);
+}
+
+fn add_shader(builder: *Builder, file: []const u8) void {
+    const glslc = builder.addSystemCommand(&.{"glslc"});
+    const output = builder.fmt("shader/{s}.spv", .{file});
+
+    glslc.addArgs(&.{
+        builder.fmt("assets/shader/shader.{s}", .{file}),
+        "-o",
     });
 
-    const run_exe_unit_tests = builder.addRunArtifact(exe_unit_tests);
-    const test_step = builder.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
+    const out = glslc.addOutputFileArg(output);
+    builder.getInstallStep().dependOn(&builder.addInstallFileWithDir(out, .prefix, output).step);
 }

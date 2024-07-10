@@ -1,9 +1,6 @@
 const std = @import("std");
-const buffer = @import("buffer.zig");
-const Line = buffer.Line;
-const Buffer = buffer.Buffer;
-const Cursor = buffer.Cursor;
-const util = @import("util.zig");
+const Buffer = @import("buffer.zig");
+const util = @import("../collections.zig");
 
 pub const c = @cImport({
     @cInclude("tree_sitter/api.h");
@@ -201,44 +198,44 @@ const EditType = enum {
     Remove,
 };
 
-pub fn edit_tree(
-    highlight: *Highlight,
-    t: EditType,
-    start: *const Cursor,
-    end: *const Cursor,
-    offset: u32,
-    rows: u32,
-) !void {
-    const old_end = if (t == EditType.Add) start else end;
-    const new_end = if (t == EditType.Add) end else start;
+// pub fn edit_tree(
+//     highlight: *Highlight,
+//     t: EditType,
+//     start: *const Cursor,
+//     end: *const Cursor,
+//     offset: u32,
+//     rows: u32,
+// ) !void {
+//     const old_end = if (t == EditType.Add) start else end;
+//     const new_end = if (t == EditType.Add) end else start;
 
-    const edit = c.TSInputEdit {
-        .start_byte = start.byte_offset,
-        .old_end_byte = old_end.byte_offset,
-        .new_end_byte = new_end.byte_offset,
-        .start_point = .{
-            .row = start.y,
-            .column = start.x,
-        },
-        .old_end_point = .{
-            .row = old_end.y,
-            .column = old_end.x,
-        },
-        .new_end_point = .{
-            .row = new_end.y,
-            .column = new_end.x,
-        },
-    };
+//     const edit = c.TSInputEdit {
+//         .start_byte = start.byte_offset,
+//         .old_end_byte = old_end.byte_offset,
+//         .new_end_byte = new_end.byte_offset,
+//         .start_point = .{
+//             .row = start.y,
+//             .column = start.x,
+//         },
+//         .old_end_point = .{
+//             .row = old_end.y,
+//             .column = old_end.x,
+//         },
+//         .new_end_point = .{
+//             .row = new_end.y,
+//             .column = new_end.x,
+//         },
+//     };
 
-    c.ts_tree_edit(highlight.tree, &edit);
-    highlight.tree = c.ts_parser_parse(
-        highlight.parser,
-        highlight.tree,
-        highlight.input,
-    ) orelse return error.ParseTree;
+//     c.ts_tree_edit(highlight.tree, &edit);
+//     highlight.tree = c.ts_parser_parse(
+//         highlight.parser,
+//         highlight.tree,
+//         highlight.input,
+//     ) orelse return error.ParseTree;
 
-    try fill_id_ranges(highlight, offset, rows);
-}
+//     try fill_id_ranges(highlight, offset, rows);
+// }
 
 fn get_language(highlight: *Highlight, lang_name: []const u8) !*c.TSLanguage {
     var language: *c.TSLanguage = undefined;

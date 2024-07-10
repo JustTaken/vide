@@ -39,3 +39,12 @@ pub fn hash(string: []const u8) u32 {
 
     return h * len;
 }
+
+pub fn hash_key(string: []const u8) u32 {
+    var h: u32 = 0;
+    for (0..string.len) |i| {
+        h += string[i];
+    }
+
+    return h;
+}

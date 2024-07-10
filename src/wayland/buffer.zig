@@ -1,112 +1,137 @@
 const std = @import("std");
-const wayland = @import("core.zig");
-const math = @import("../math.zig");
+
+// const wayland = @import("core.zig");
+// const math = @import("../math.zig");
 const util = @import("util.zig");
 const highlight = @import("highlight.zig");
+// const command = @import("command.zig");
+
 const Highlight = highlight.Highlight;
-const Wayland = wayland.Wayland;
-const command = @import("command.zig");
+// const Wayland = wayland.Wayland;
+const Vec = util.Vec;
 const Allocator = std.mem.Allocator;
+
+const Self = @This();
+
 const TAB: u32 = 2;
+const DEFAULT_CHARS_PER_LINE: u32 = 50;
 
-pub const Buffer = struct {
-    name: []u8,
-    lines: []Line,
-    line_count: u32,
-    offset: [2]u32,
-    cursor: Cursor,
-    selection: Cursor,
-    selection_active: bool,
-    highlight: Highlight,
-};
+name: []const u8,
+lines: Vec(Line),
+rect: Rect,
+cursor: Cursor,
+selection: Cursor,
+selection_active: bool,
+highlight: Highlight,
 
-pub const Line = struct {
-    content: []u8,
+pub fn init(
+    name: []const u8,
+    content: []const u8,
+    size: Length,
+    allocator: Allocator
+) !Self {
+    var lines = try Vec(Line).init((content.len + DEFAULT_CHARS_PER_LINE) / DEFAULT_CHARS_PER_LINE, allocator);
+
+    {
+        var line_start: u32 = 0;
+        for (0..content.len) |i| {
+            if (content[i] == '\n') {
+                lines.push(
+                    Line.init(content[line_start..i], allocator)
+                );
+
+                line_start = i + 1;
+            }
+        }
+    }
+
+    {
+        if (content.len == 0) {
+            try lines.push("", allocator);
+        }
+    }
+
+    return Self {
+        .name = name,
+        .lines = lines,
+
+        .rect = Rect.init(Coord.init(0, 0), size),
+        .cursor = Cursor.init(0, 0, 0),
+        .selection = Cursor.init(0, 0, 0),
+        .selection_active = false,
+    };
+}
+
+pub fn place_cursor(self: *Self, x: u32, y: u32, offset: u32,) void {
+    self.cursor.change(x, y, offset);
+
+    if (!self.selection_active) {
+        self.selection.change(x, y, offset);
+    }
+}
+
+pub fn deinit(self: *const Self) void {
+    self.lines.deinit();
+}
+
+const Line = struct {
+    content: Vec(u8),
     indent: u32,
-    char_count: u32,
+
+    fn init(content: []const u8, allocator: Allocator) !Line {
+        if (content.len > 0) {
+            var indent = 0;
+            while (content[indent] == ' ') : (indent += 1) {}
+        }
+
+        return Line {
+            .content = try Vec(u8).init(allocator, DEFAULT_CHARS_PER_LINE),
+            .indent = indent,
+        };
+    }
+
+    fn deinit(self: *const Line) void {
+        self.content.deinit();
+    }
 };
 
-pub const Cursor = struct {
-    x: u32,
-    y: u32,
-    byte_offset: u32,
+const Cursor = struct {
+    coordinates: Coord,
+    offset: u32,
+
+    fn init(x: u32, y: u32, offset: u32) Cursor {
+        return Cursor {
+            .offset = offset,
+            .coordinates = Coord.init(x, y),
+        }
+    }
+
+    fn change(self: *Cursor, x: u32, y: u32, offset: u32) void {
+        self.coordinates.change(x, y);
+        self.offset = offset;
+    }
 };
 
-pub inline fn place_cursor(buffer: *Buffer, position: [2]u32, offset: u32,) void {
-    buffer.cursor.x = position[0];
-    buffer.cursor.y = position[1];
-    buffer.cursor.byte_offset = offset;
+const Rect = struct {
+    coord: Coord,
+    size: Length,
 
-    if (!buffer.selection_active) {
-        buffer.selection.x = buffer.cursor.x;
-        buffer.selection.y = buffer.cursor.y;
-        buffer.selection.byte_offset = buffer.cursor.byte_offset;
-    }
-}
-
-pub fn buffer_init(buffer: *Buffer, allocator: Allocator) !void {
-    const name = "scratch";
-
-    buffer.name = try allocator.alloc(u8, name.len);
-    buffer.lines = try allocator.alloc(Line, 10);
-    buffer.offset = .{ 0, 0 };
-    buffer.line_count = 1;
-    buffer.selection_active = false;
-
-    buffer.lines[0] = Line {
-        .content = try allocator.alloc(u8, 50),
-        .char_count = 0,
-        .indent = 0,
-    };
-
-    buffer.cursor = Cursor {
-        .x = 0,
-        .y = 0,
-        .byte_offset = 0,
-    };
-
-    buffer.selection = Cursor {
-        .x = 0,
-        .y = 0,
-        .byte_offset = 0,
-    };
-
-    for (0..name.len) |i| {
-        buffer.name[i] = name[i];
-    }
-}
-
-pub fn check_col_offset(buffer: *Buffer, cols: u32) bool {
-    const last_index = cols - 1;
-
-    if (last_index + buffer.offset[0] < buffer.cursor.x) {
-        buffer.offset[0] = buffer.cursor.x - last_index;
-        return true;
-    } else if (buffer.cursor.x < buffer.offset[0]) {
-        buffer.offset[0] = buffer.cursor.x;
-        return true;
+    fn init(coord: Coord, size: Length) Rect {
+        return Rect {
+            .coord = coord,
+            .size = size,
+        };
     }
 
-    return false;
-}
+    fn contains(self: *const Rect, coord: Coord) bool {
+        const contain_x = self.coord.x <= coord.x and self.coord.x + self.size.x >= coord.x;
+        const contain_y = self.coord.y <= coord.y and self.coord.y + self.size.y >= coord.y;
 
-pub fn check_row_offset(buffer: *Buffer, rows: u32) bool {
-    const last_index = rows - 1;
-
-    if (last_index + buffer.offset[1] < buffer.cursor.y) {
-        buffer.offset[1] = buffer.cursor.y - last_index;
-
-        return true;
-    } else if (buffer.cursor.y < buffer.offset[1]) {
-        buffer.offset[1] = buffer.cursor.y;
-
-        return true;
+        return contain_x and contain_y;
     }
+};
 
-    return false;
-}
-
-pub fn enter(core: *Wayland) !void {
+fn enter(core: *Wayland) !void {
     const buffer = &core.buffers[core.buffer_index];
 
     if (core.mode_line.mode == .Command) {
@@ -163,7 +188,7 @@ pub fn enter(core: *Wayland) !void {
 
     buffer.line_count += 1;
     const prev_cursor = buffer.cursor;
-    place_cursor(buffer, .{ current_line.indent, y }, buffer.cursor.byte_offset + current_line.indent + 1);
+    place_cursor(buffer, .{ current_line.indent, y }, buffer.cursor.offset + current_line.indent + 1);
 
     _ = check_row_offset(buffer, core.rows - 1);
     buffer.offset[0] = 0;
@@ -206,7 +231,7 @@ pub fn tab(core: *Wayland) !void {
     }
 
     const prev_cursor = buffer.cursor;
-    place_cursor(buffer, .{ buffer.cursor.x + TAB, buffer.cursor.y }, buffer.cursor.byte_offset + TAB);
+    place_cursor(buffer, .{ buffer.cursor.x + TAB, buffer.cursor.y }, buffer.cursor.offset + TAB);
     line.indent += TAB;
     line.char_count += TAB;
 
@@ -242,7 +267,7 @@ pub fn back_tab(core: *Wayland) !void {
     line.char_count -= remove_from_start;
     line.indent -= remove_from_start;
     const prev_cursor = buffer.cursor;
-    place_cursor(buffer, .{ buffer.cursor.x - remove_from_start, buffer.cursor.y }, buffer.cursor.byte_offset - remove_from_start);
+    place_cursor(buffer, .{ buffer.cursor.x - remove_from_start, buffer.cursor.y }, buffer.cursor.offset - remove_from_start);
 
     if (buffer.highlight.on) {
         try highlight.edit_tree(
@@ -298,7 +323,7 @@ pub fn new_char(core: *Wayland) !void {
 
     line.content[buffer.cursor.x] = core.last_char;
     const prev_cursor = buffer.cursor;
-    place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y }, buffer.cursor.byte_offset + 1);
+    place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y }, buffer.cursor.offset + 1);
 
     line.char_count += 1;
 
@@ -328,8 +353,8 @@ pub fn next_line(core: *Wayland) !void {
             x = buffer.lines[y].char_count;
         }
 
-        const byte_offset_addition = buffer.lines[buffer.cursor.y].char_count + x - buffer.cursor.x + 1;
-        place_cursor(buffer, .{ x, y }, buffer.cursor.byte_offset + byte_offset_addition);
+        const offset_addition = buffer.lines[buffer.cursor.y].char_count + x - buffer.cursor.x + 1;
+        place_cursor(buffer, .{ x, y }, buffer.cursor.offset + offset_addition);
         
         if (check_col_offset(buffer, core.cols - 1) or check_row_offset(buffer, core.rows - 1)) {
             if (buffer.highlight.on) {
@@ -357,9 +382,9 @@ pub fn prev_line(core: *Wayland) !void {
             x = buffer.lines[y].char_count;
         }
 
-        const new_byte_offset = buffer.cursor.byte_offset + x - 1 - buffer.cursor.x - buffer.lines[y].char_count;
+        const new_offset = buffer.cursor.offset + x - 1 - buffer.cursor.x - buffer.lines[y].char_count;
 
-        place_cursor(buffer, .{ x, y }, new_byte_offset);
+        place_cursor(buffer, .{ x, y }, new_offset);
 
         if (check_col_offset(buffer, core.cols - 1) or check_row_offset(buffer, core.rows - 1)) {
             if (buffer.highlight.on) {
@@ -385,7 +410,7 @@ pub fn line_start(core: *Wayland) !void {
     } else {
         if (buffer.cursor.x == 0) return;
 
-        place_cursor(buffer, .{ 0, buffer.cursor.y }, buffer.cursor.byte_offset - buffer.cursor.x);
+        place_cursor(buffer, .{ 0, buffer.cursor.y }, buffer.cursor.offset - buffer.cursor.x);
         if (check_col_offset(buffer, core.cols - 1)) {
             if (buffer.highlight.on) {
                 try highlight.fill_id_ranges(
@@ -412,7 +437,7 @@ pub fn line_end(core: *Wayland) !void {
 
         if (buffer.cursor.x == count) return;
 
-        place_cursor(buffer, .{ count, buffer.cursor.y }, buffer.cursor.byte_offset + count - buffer.cursor.x);
+        place_cursor(buffer, .{ count, buffer.cursor.y }, buffer.cursor.offset + count - buffer.cursor.x);
         if (check_col_offset(buffer, core.cols - 1)) {
             if (buffer.highlight.on) {
                 try highlight.fill_id_ranges(
@@ -460,11 +485,11 @@ pub fn delete_selection(core: *Wayland) !void {
         if (buffer.line_count > end.y + 1) {
             end.y += 1;
             end.x = 0;
-            end.byte_offset += 1;
+            end.offset += 1;
         }
     } else {
         end.x += 1;
-        end.byte_offset += 1;
+        end.offset += 1;
     }
 
     const len = buffer.lines[end.y].char_count + start.x - end.x;
@@ -488,7 +513,7 @@ pub fn delete_selection(core: *Wayland) !void {
     buffer.lines[start.y].char_count = len;
     buffer.selection_active = false;
 
-    place_cursor(buffer, .{ start.x, start.y }, start.byte_offset);
+    place_cursor(buffer, .{ start.x, start.y }, start.offset);
 
     const diff = end.y - start.y;
     if (diff != 0) {
@@ -526,12 +551,12 @@ pub fn prev_char(core: *Wayland) !void {
         place_cursor(buffer, .{ buffer.cursor.x - 1, buffer.cursor.y }, 0);
     } else {
         if (buffer.cursor.x != 0){
-            place_cursor(buffer, .{ buffer.cursor.x - 1, buffer.cursor.y }, buffer.cursor.byte_offset - 1);
+            place_cursor(buffer, .{ buffer.cursor.x - 1, buffer.cursor.y }, buffer.cursor.offset - 1);
         } else if (buffer.cursor.y != 0) {
             const y = buffer.cursor.y - 1;
             const line = &buffer.lines[y];
 
-            place_cursor(buffer, .{ line.char_count, y }, buffer.cursor.byte_offset - 1);
+            place_cursor(buffer, .{ line.char_count, y }, buffer.cursor.offset - 1);
         } else {
             return;
         }
@@ -558,9 +583,9 @@ pub fn next_char(core: *Wayland) !void {
         place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y }, 0);
     } else {
         if (buffer.cursor.x < buffer.lines[buffer.cursor.y].char_count) {
-            place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y }, buffer.cursor.byte_offset + 1);
+            place_cursor(buffer, .{ buffer.cursor.x + 1, buffer.cursor.y }, buffer.cursor.offset + 1);
         } else if (buffer.cursor.y + 1 < buffer.line_count) {
-            place_cursor(buffer, .{ 0, buffer.cursor.y + 1 }, buffer.cursor.byte_offset + 1);
+            place_cursor(buffer, .{ 0, buffer.cursor.y + 1 }, buffer.cursor.offset + 1);
         } else {
             return;
         }
@@ -590,7 +615,7 @@ pub fn next_word(core: *Wayland) !void {
             searching_for_word = true;
         } else if (searching_for_word) {
             const ii: u32 = @intCast(i);
-            place_cursor(buffer, .{ ii, buffer.cursor.y }, buffer.cursor.byte_offset + ii - buffer.cursor.x);
+            place_cursor(buffer, .{ ii, buffer.cursor.y }, buffer.cursor.offset + ii - buffer.cursor.x);
             break;
         }
     }
@@ -622,14 +647,14 @@ pub fn prev_word(core: *Wayland) !void {
         if (line.content[right_boundary - i - 1] != ' ') {
             searching_for_space = true;
             if (i == right_boundary - 1) {
-                const byte_offset = if (core.mode_line.mode == .Command) 0 else buffer.cursor.byte_offset - right_boundary;
-                place_cursor(buffer, .{ buffer.cursor.x - right_boundary, buffer.cursor.y }, byte_offset);
+                const offset = if (core.mode_line.mode == .Command) 0 else buffer.cursor.offset - right_boundary;
+                place_cursor(buffer, .{ buffer.cursor.x - right_boundary, buffer.cursor.y }, offset);
             } else {
                 return;
             }
         } else if (searching_for_space) {
-            const byte_offset = if (core.mode_line.mode == .Command) 0 else buffer.cursor.byte_offset - ii;
-            place_cursor(buffer, .{ buffer.cursor.x - ii, buffer.cursor.y }, byte_offset);
+            const offset = if (core.mode_line.mode == .Command) 0 else buffer.cursor.offset - ii;
+            place_cursor(buffer, .{ buffer.cursor.x - ii, buffer.cursor.y }, offset);
             break;
         }
     }
@@ -655,7 +680,7 @@ pub fn selection_mode(core: *Wayland) !void {
     if (!buffer.selection_active) {
         buffer.selection.x = buffer.cursor.x;
         buffer.selection.y = buffer.cursor.y;
-        buffer.selection.byte_offset = buffer.cursor.byte_offset;
+        buffer.selection.offset = buffer.cursor.offset;
         core.update = true;
     }
 }
@@ -668,12 +693,12 @@ pub fn scroll_down(core: *Wayland) !void {
     buffer.offset[1] += add;
 
     if (buffer.cursor.y < buffer.offset[1]) {
-        var byte_offset: u32 = buffer.cursor.byte_offset;
+        var offset: u32 = buffer.cursor.offset;
         for (buffer.cursor.y..buffer.offset[1]) |i| {
-            byte_offset += buffer.lines[i].char_count + 1;
+            offset += buffer.lines[i].char_count + 1;
         }
 
-        place_cursor(buffer, .{ 0, buffer.offset[1] }, byte_offset - buffer.cursor.x);
+        place_cursor(buffer, .{ 0, buffer.offset[1] }, offset - buffer.cursor.x);
         buffer.offset[0] = 0;
     }
 
@@ -701,13 +726,13 @@ pub fn scroll_up(core: *Wayland) !void {
 
     const rows = core.rows - 1;
     if (buffer.cursor.y >= buffer.offset[1] + rows) {
-        var byte_offset: u32 = buffer.cursor.byte_offset;
+        var offset: u32 = buffer.cursor.offset;
 
         for (buffer.offset[1] + rows..buffer.cursor.y) |i| {
-            byte_offset -= buffer.lines[i].char_count + 1;
+            offset -= buffer.lines[i].char_count + 1;
         }
 
-        place_cursor(buffer, .{ 0, buffer.offset[1] + rows }, byte_offset + buffer.cursor.x);
+        place_cursor(buffer, .{ 0, buffer.offset[1] + rows }, offset + buffer.cursor.x);
         buffer.offset[0] = 0;
     }
 

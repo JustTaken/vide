@@ -21,6 +21,6 @@ void main() {
 
   gl_Position = vec4(vertex_position, 0.0, 1.0);
 
-  frag_color = vec3(color) * 0.04;
+  frag_color = vec3(color) / 255.0;
   frag_texture_coords = texture_coords;
 }

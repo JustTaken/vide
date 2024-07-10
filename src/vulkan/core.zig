@@ -10,106 +10,6 @@ const Font = truetype.TrueType;
 var ARENA = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const ALLOCATOR = ARENA.allocator();
 
-pub const InstanceDispatch = struct {
-    handle: c.VkInstance,
-    surface: c.VkSurfaceKHR,
-    library: *anyopaque,
-    vkCreateInstance: *const fn (?*const c.VkInstanceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkInstance) callconv(.C) i32,
-    vkCreateDevice: *const fn (c.VkPhysicalDevice, *const c.VkDeviceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkDevice) callconv(.C) i32,
-    vkEnumeratePhysicalDevices: *const fn (c.VkInstance, *u32, ?[*]c.VkPhysicalDevice) callconv(.C) i32,
-    vkEnumerateDeviceExtensionProperties: *const fn (c.VkPhysicalDevice, ?[*]const u8, *u32, ?[*]c.VkExtensionProperties) callconv(.C) i32,
-    vkGetPhysicalDeviceProperties: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceProperties) callconv(.C) void,
-    vkGetPhysicalDeviceFeatures: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceFeatures) callconv(.C) void,
-    vkGetPhysicalDeviceSurfaceFormatsKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkSurfaceFormatKHR) callconv(.C) i32,
-    vkGetPhysicalDeviceSurfacePresentModesKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkPresentModeKHR) callconv(.C) i32,
-    vkGetPhysicalDeviceQueueFamilyProperties: *const fn (c.VkPhysicalDevice, *u32, ?[*]c.VkQueueFamilyProperties) callconv(.C) void,
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *c.VkSurfaceCapabilitiesKHR) callconv(.C) i32,
-    vkGetPhysicalDeviceSurfaceSupportKHR: *const fn (c.VkPhysicalDevice, u32, c.VkSurfaceKHR, *u32) callconv(.C) i32,
-    vkGetPhysicalDeviceMemoryProperties: *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void,
-    vkGetPhysicalDeviceFormatProperties: *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void,
-    vkDestroySurfaceKHR: *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkCreateWaylandSurfaceKHR: *const fn (c.VkInstance, *const c.VkWaylandSurfaceCreateInfoKHR, ?*const c.VkAllocationCallbacks, *c.VkSurfaceKHR) callconv(.C) i32,
-    vkDestroyInstance: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkGetInstanceProcAddr: *const fn (c.VkInstance, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction,
-};
-
-pub const DeviceDispatch = struct {
-    handle: c.VkDevice,
-    queues: [4]c.VkQueue,
-    families: [4]u8,
-    physical_device: c.VkPhysicalDevice,
-    physical_device_properties: c.VkPhysicalDeviceMemoryProperties,
-    vkGetDeviceQueue: *const fn (c.VkDevice, u32, u32, *c.VkQueue) callconv(.C) void,
-    vkAllocateCommandBuffers: *const fn (c.VkDevice, *const c.VkCommandBufferAllocateInfo, *c.VkCommandBuffer) callconv(.C) i32,
-    vkAllocateMemory: *const fn (c.VkDevice, *const c.VkMemoryAllocateInfo, ?*const c.VkAllocationCallbacks, *c.VkDeviceMemory) callconv(.C) i32,
-    vkAllocateDescriptorSets: *const fn (c.VkDevice, *const c.VkDescriptorSetAllocateInfo, *c.VkDescriptorSet) callconv(.C) i32,
-    vkQueueSubmit: *const fn (c.VkQueue, u32, *const c.VkSubmitInfo, c.VkFence) callconv(.C) i32,
-    vkQueuePresentKHR: *const fn (c.VkQueue, *const c.VkPresentInfoKHR) callconv(.C) i32,
-    vkQueueWaitIdle: *const fn (c.VkQueue) callconv(.C) i32,
-    vkGetImageMemoryRequirements: *const fn (c.VkDevice, c.VkImage, *c.VkMemoryRequirements) callconv(.C) void,
-    vkGetSwapchainImagesKHR: *const fn (c.VkDevice, c.VkSwapchainKHR, *u32, ?[*]c.VkImage) callconv(.C) i32,
-    vkGetBufferMemoryRequirements: *const fn (c.VkDevice, c.VkBuffer, *c.VkMemoryRequirements) callconv(.C) void,
-    vkBindBufferMemory: *const fn (c.VkDevice, c.VkBuffer, c.VkDeviceMemory, u64) callconv(.C) i32,
-    vkBindImageMemory: *const fn (c.VkDevice, c.VkImage, c.VkDeviceMemory, u64) callconv(.C) i32,
-    vkAcquireNextImageKHR: *const fn (c.VkDevice, c.VkSwapchainKHR, u64, c.VkSemaphore, c.VkFence, *u32) callconv(.C) i32,
-    vkWaitForFences: *const fn (c.VkDevice, u32, *const c.VkFence, u32, u64) callconv(.C) i32,
-    vkResetFences: *const fn (c.VkDevice, u32, *const c.VkFence) callconv(.C) i32,
-    vkCreateSwapchainKHR: *const fn (c.VkDevice, *const c.VkSwapchainCreateInfoKHR, ?*const c.VkAllocationCallbacks, *c.VkSwapchainKHR) callconv(.C) i32,
-    vkCreateImage: *const fn (c.VkDevice, *const c.VkImageCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkImage) callconv(.C) i32,
-    vkCreateShaderModule: *const fn (c.VkDevice, *const c.VkShaderModuleCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkShaderModule) callconv(.C) i32,
-    vkCreatePipelineLayout: *const fn (c.VkDevice, *const c.VkPipelineLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkPipelineLayout) callconv(.C) i32,
-    vkCreateImageView: *const fn (c.VkDevice, *const c.VkImageViewCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkImageView) callconv(.C) i32,
-    vkCreateRenderPass: *const fn (c.VkDevice, *const c.VkRenderPassCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkRenderPass) callconv(.C) i32,
-    vkCreateGraphicsPipelines: *const fn (c.VkDevice, c.VkPipelineCache, u32, *const c.VkGraphicsPipelineCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkPipeline) callconv(.C) i32,
-    vkCreateFramebuffer: *const fn (c.VkDevice, *const c.VkFramebufferCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkFramebuffer) callconv(.C) i32,
-    vkCreateCommandPool: *const fn (c.VkDevice, *const c.VkCommandPoolCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkCommandPool) callconv(.C) i32,
-    vkCreateSemaphore: *const fn (c.VkDevice, *const c.VkSemaphoreCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkSemaphore) callconv(.C) i32,
-    vkCreateFence: *const fn (c.VkDevice, *const c.VkFenceCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkFence) callconv(.C) i32,
-    vkCreateBuffer: *const fn (c.VkDevice, *const c.VkBufferCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkBuffer) callconv(.C) i32,
-    vkCreateSampler: *const fn (c.VkDevice, *const c.VkSamplerCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkSampler) callconv(.C) i32,
-    vkCreateDescriptorSetLayout: *const fn (c.VkDevice, *const c.VkDescriptorSetLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorSetLayout) callconv(.C) i32,
-    vkCreateDescriptorPool: *const fn (c.VkDevice, *const c.VkDescriptorPoolCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorPool) callconv(.C) i32,
-    vkDestroyCommandPool: *const fn (c.VkDevice, c.VkCommandPool, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyPipeline: *const fn (c.VkDevice, c.VkPipeline, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyPipelineLayout: *const fn (c.VkDevice, c.VkPipelineLayout, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyRenderPass: *const fn (c.VkDevice, c.VkRenderPass, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyImage: *const fn (c.VkDevice, c.VkImage, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyImageView: *const fn (c.VkDevice, c.VkImageView, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroySwapchainKHR: *const fn (c.VkDevice, c.VkSwapchainKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyShaderModule: *const fn (c.VkDevice, c.VkShaderModule, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroySemaphore: *const fn (c.VkDevice, c.VkSemaphore, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyFence: *const fn (c.VkDevice, c.VkFence, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyFramebuffer: *const fn (c.VkDevice, c.VkFramebuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyBuffer: *const fn (c.VkDevice, c.VkBuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyDescriptorSetLayout: *const fn (c.VkDevice, c.VkDescriptorSetLayout, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroyDescriptorPool: *const fn (c.VkDevice, c.VkDescriptorPool, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkBeginCommandBuffer: *const fn (c.VkCommandBuffer, *const c.VkCommandBufferBeginInfo) callconv(.C) i32,
-    vkCmdBeginRenderPass: *const fn (c.VkCommandBuffer, *const c.VkRenderPassBeginInfo, c.VkSubpassContents) callconv(.C) void,
-    vkCmdBindPipeline: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipeline) callconv(.C) void,
-    vkCmdBindVertexBuffers: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkBuffer, *const u64) callconv(.C) void,
-    vkCmdBindIndexBuffer: *const fn (c.VkCommandBuffer, c.VkBuffer, u64, c.VkIndexType) callconv(.C) void,
-    vkCmdSetViewport: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkViewport) callconv(.C) void,
-    vkCmdSetScissor: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkRect2D) callconv(.C) void,
-    vkCmdCopyBufferToImage: *const fn (c.VkCommandBuffer, c.VkBuffer, c.VkImage, c.VkImageLayout, u32, *const c.VkBufferImageCopy) callconv(.C) void,
-    vkCmdCopyBuffer: *const fn (c.VkCommandBuffer, c.VkBuffer, c.VkBuffer, u32, *const c.VkBufferCopy) callconv(.C) void,
-    vkCmdDraw: *const fn (c.VkCommandBuffer, u32, u32, u32, u32) callconv(.C) void,
-    vkCmdDrawIndexed: *const fn (c.VkCommandBuffer, u32, u32, u32, i32, u32) callconv(.C) void,
-    vkCmdPushConstants: *const fn (c.VkCommandBuffer, c.VkPipelineLayout, c.VkShaderStageFlags, u32, u32, ?*const anyopaque) callconv(.C) void,
-    vkCmdPipelineBarrier: *const fn (c.VkCommandBuffer, c.VkPipelineStageFlags, c.VkPipelineStageFlags, c.VkDependencyFlags, u32, ?*const c.VkMemoryBarrier, u32, ?*const c.VkBufferMemoryBarrier, u32, ?*const c.VkImageMemoryBarrier) callconv(.C) void,
-    vkUpdateDescriptorSets: *const fn (c.VkDevice, u32, [*]const c.VkWriteDescriptorSet, u32, ?*const c.VkCopyDescriptorSet) callconv(.C) void,
-    vkCmdBindDescriptorSets: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipelineLayout, u32, u32, [*]const c.VkDescriptorSet, u32, ?*const u32) callconv(.C) void,
-    vkCmdEndRenderPass: *const fn (c.VkCommandBuffer) callconv(.C) void,
-    vkEndCommandBuffer: *const fn (c.VkCommandBuffer) callconv(.C) i32,
-    vkResetCommandBuffer: *const fn (c.VkCommandBuffer, c.VkCommandBufferResetFlags) callconv(.C) i32,
-    vkFreeMemory: *const fn (c.VkDevice, c.VkDeviceMemory, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkFreeCommandBuffers: *const fn (c.VkDevice, c.VkCommandPool, u32, *const c.VkCommandBuffer) callconv(.C) void,
-    vkFreeDescriptorSets: *const fn (c.VkDevice, c.VkDescriptorPool, u32, *const c.VkDescriptorSet) callconv(.C) i32,
-    vkMapMemory: *const fn (c.VkDevice, c.VkDeviceMemory, u64, u64, u32, *?*anyopaque) callconv(.C) i32,
-    vkUnmapMemory: *const fn (c.VkDevice, c.VkDeviceMemory) callconv(.C) void,
-    vkDestroyDevice: *const fn (c.VkDevice, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkDestroySampler: *const fn (c.VkDevice, c.VkSampler, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    vkGetDeviceProcAddr: *const fn (c.VkDevice, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction,
-};
 
 pub const GraphicsPipeline = struct {
     handle: c.VkPipeline,
@@ -193,327 +93,6 @@ const Uniform = struct {
     dst: []f32,
 };
 
-const GpuType = enum {
-    Other,
-    Integrated,
-    Discrete,
-    Virtual,
-    Cpu
-};
-
-pub fn instance_init(window: *const Window) !InstanceDispatch {
-    var instance: InstanceDispatch = undefined;
-
-    instance.library = c.dlopen("libvulkan.so", 1) orelse return error.VulkanLibraryLoading;
-    const vkCreateInstance = @as(c.PFN_vkCreateInstance, @ptrCast(c.dlsym(instance.library, "vkCreateInstance"))) orelse return error.PFN_vkCreateInstanceNotFound;
-
-    const application_info = c.VkApplicationInfo {
-        .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = "vide",
-        .pEngineName = "vide",
-        .engineVersion = 1,
-        .apiVersion = c.VK_MAKE_API_VERSION(0, 1, 3, 0),
-    };
-
-    const validation_layers: []const [*c]const u8 = &[_][*c]const u8 { "VK_LAYER_KHRONOS_validation" };
-    const extensions: []const [*c]const u8 = &[_][*c]const u8 {
-        "VK_KHR_surface",
-        "VK_KHR_wayland_surface"
-    };
-
-    const instance_create_info = c.VkInstanceCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .enabledLayerCount = validation_layers.len,
-        .ppEnabledLayerNames = validation_layers.ptr,
-        .enabledExtensionCount = extensions.len,
-        .ppEnabledExtensionNames = extensions.ptr,
-        .pApplicationInfo = &application_info,
-    };
-
-    const result = vkCreateInstance(&instance_create_info, null, &instance.handle);
-    if (result != 0) return error.InstanceCreate;
-
-    instance.vkGetInstanceProcAddr = @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.dlsym(instance.library, "vkGetInstanceProcAddr"))) orelse return error.PFN_vkGetInstanceProcAddr;
-    instance.vkDestroySurfaceKHR = @as(c.PFN_vkDestroySurfaceKHR, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkDestroySurfaceKHR"))) orelse return error.FunctionNotFound;
-    instance.vkEnumeratePhysicalDevices = @as(c.PFN_vkEnumeratePhysicalDevices, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkEnumeratePhysicalDevices"))) orelse return error.FunctionNotFound;
-    instance.vkEnumerateDeviceExtensionProperties = @as(c.PFN_vkEnumerateDeviceExtensionProperties, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkEnumerateDeviceExtensionProperties"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceProperties = @as(c.PFN_vkGetPhysicalDeviceProperties, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceProperties"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceFeatures = @as(c.PFN_vkGetPhysicalDeviceFeatures, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceFeatures"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceSurfaceFormatsKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceSurfaceFormatsKHR"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceSurfacePresentModesKHR = @as(c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceSurfacePresentModesKHR"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceQueueFamilyProperties = @as(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceQueueFamilyProperties"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceSurfaceCapabilitiesKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceSurfaceSupportKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceSurfaceSupportKHR"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceMemoryProperties = @as(c.PFN_vkGetPhysicalDeviceMemoryProperties, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceMemoryProperties"))) orelse return error.FunctionNotFound;
-    instance.vkGetPhysicalDeviceFormatProperties = @as(c.PFN_vkGetPhysicalDeviceFormatProperties, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkGetPhysicalDeviceFormatProperties"))) orelse return error.FunctionNotFound;
-    instance.vkCreateDevice = @as(c.PFN_vkCreateDevice, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkCreateDevice"))) orelse return error.FunctionNotFound;
-    instance.vkDestroyInstance = @as(c.PFN_vkDestroyInstance, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkDestroyInstance"))) orelse return error.FunctionNotFound;
-
-    const vkCreateWaylandSurfaceKHR = @as(c.PFN_vkCreateWaylandSurfaceKHR, @ptrCast(instance.vkGetInstanceProcAddr(instance.handle, "vkCreateWaylandSurfaceKHR"))) orelse return error.FunctionNotFound;
-
-    const wayland_surface_create_info = c.VkWaylandSurfaceCreateInfoKHR {
-        .sType = c.VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-        .display = window.display,
-        .surface = window.surface,
-    };
-
-    _ = vkCreateWaylandSurfaceKHR(instance.handle, &wayland_surface_create_info, null, &instance.surface);
-
-    return instance;
-}
-
-const PhysicalDeviceValuation = struct {
-    match_extensions: bool,
-    has_sampler_anisotropy: bool,
-    has_geometry_shader: bool,
-    has_formats: bool,
-    has_present_modes: bool,
-    families: [4]u8,
-    typ: GpuType,
-};
-
-fn avaliate_physical_device(
-    dispatch: *const InstanceDispatch,
-    required_extensions: []const [*:0]const u8,
-    physical_device: c.VkPhysicalDevice,
-) PhysicalDeviceValuation {
-    var valuation = PhysicalDeviceValuation {
-        .match_extensions = false,
-        .has_sampler_anisotropy = false,
-        .has_geometry_shader = false,
-        .has_formats = false,
-        .has_present_modes = false,
-        .families = .{ 0xFF, 0xFF, 0xFF, 0xFF },
-        .typ = .Other,
-    };
-
-    {
-        var count: u32 = 0;
-        _ = dispatch.vkEnumerateDeviceExtensionProperties(physical_device, null, &count, null);
-        const properties = ALLOCATOR.alloc(c.VkExtensionProperties, count) catch return valuation;
-        _ = dispatch.vkEnumerateDeviceExtensionProperties(physical_device, null, &count, properties.ptr);
-
-        for (required_extensions) |extension| {
-            valuation.match_extensions = false;
-
-            for (properties) |property| {
-                if (std.mem.eql(u8, std.mem.span(extension), std.mem.sliceTo(&property.extensionName, 0))) break;
-            } else continue;
-
-            valuation.match_extensions = true;
-        }
-    }
-
-    {
-        var count: u32 = 0;
-        _ = dispatch.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, dispatch.surface, &count, null);
-        if (count != 0) valuation.has_formats = true;
-    }
-    {
-        var count: u32 = 0;
-        _ = dispatch.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, dispatch.surface, &count, null);
-        if (count != 0) valuation.has_present_modes = true;
-    }
-    {
-        var families: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF };
-        var count: u32 = 0;
-
-        dispatch.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, null);
-        const properties = ALLOCATOR.alloc(c.VkQueueFamilyProperties, count) catch return valuation;
-        dispatch.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, properties.ptr);
-
-        for (0..count) |i| {
-            const family: u8 = @intCast(i);
-            const index: u32 = @intCast(i);
-
-            var surface_support: u32 = 0;
-            _ = dispatch.vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, index, dispatch.surface, &surface_support);
-
-            if (families[0] == 0xFF and properties[i].queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) families[0] = family;
-            if (families[1] == 0xFF and surface_support != 0) families[1] = family;
-            if (families[2] == 0xFF and properties[i].queueFlags & c.VK_QUEUE_COMPUTE_BIT != 0) families[2] = family;
-            if (families[3] == 0xFF and properties[i].queueFlags & c.VK_QUEUE_TRANSFER_BIT != 0) families[3] = family;
-        }
-
-        valuation.families = families;
-    }
-
-    {
-        var features: c.VkPhysicalDeviceFeatures = undefined;
-        dispatch.vkGetPhysicalDeviceFeatures(physical_device, &features);
-        valuation.has_geometry_shader = features.geometryShader == 1 ;
-        valuation.has_sampler_anisotropy = features.samplerAnisotropy == 1;
-    }
-    {
-        var properties: c.VkPhysicalDeviceProperties = undefined;
-        dispatch.vkGetPhysicalDeviceProperties(physical_device, &properties);
-
-        valuation.typ = switch (properties.deviceType) {
-            @intFromEnum(GpuType.Discrete) => GpuType.Discrete,
-            @intFromEnum(GpuType.Integrated) => GpuType.Integrated,
-            @intFromEnum(GpuType.Virtual) => GpuType.Virtual,
-            else => GpuType.Other,
-        };
-    }
-
-    return valuation;
-}
-
-pub fn device_init(instance_dispatch: *const InstanceDispatch) !DeviceDispatch {
-    var device: DeviceDispatch = undefined;
-    var count: u32 = 0;
-
-    _ = instance_dispatch.vkEnumeratePhysicalDevices(instance_dispatch.handle, &count, null);
-    var physical_devices: [3]c.VkPhysicalDevice = undefined;
-    _ = instance_dispatch.vkEnumeratePhysicalDevices(instance_dispatch.handle, &count, &physical_devices);
-
-    var max_valuation: u32 = 0;
-    const required_extensions = [_][*:0]const u8{ c.VK_KHR_SWAPCHAIN_EXTENSION_NAME };
-
-    out: for (0..count) |i| {
-        var sum: u32 = 1;
-        const valuation = avaliate_physical_device(instance_dispatch, &required_extensions, physical_devices[i]);
-
-        if (
-    !valuation.match_extensions or
-    !valuation.has_geometry_shader or
-    !valuation.has_sampler_anisotropy or
-    !valuation.has_present_modes or
-    !valuation.has_formats
-        ) continue;
-
-        for (valuation.families) |family| {
-            if (family == 255) continue :out;
-        }
-
-        sum += switch (valuation.typ) {
-            GpuType.Discrete => 4,
-            GpuType.Integrated => 3,
-            GpuType.Virtual => 2,
-            GpuType.Other => 1,
-            GpuType.Cpu => 0,
-        };
-
-        if (sum > max_valuation) {
-            device.physical_device = physical_devices[i];
-            max_valuation = sum;
-            device.families = valuation.families;
-        }
-    }
-
-    if (max_valuation == 0) return error.PhysicalDeviceRequisits;
-
-    var queue_count: u32 = 0;
-    var last_value: u32 = 0xFF;
-    var queue_create_infos: [4]c.VkDeviceQueueCreateInfo = undefined;
-
-    for (device.families) |family| {
-        if (family != last_value) {
-            last_value = family;
-            queue_create_infos[queue_count] = .{
-                .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                .queueFamilyIndex = family,
-                .queueCount = 1,
-                .pQueuePriorities = &[_]f32 { 1.0 },
-            };
-
-            queue_count += 1;
-        }
-    }
-
-    var features: c.VkPhysicalDeviceFeatures = undefined;
-    instance_dispatch.vkGetPhysicalDeviceFeatures(device.physical_device, &features);
-
-    const device_create_info = c.VkDeviceCreateInfo {
-        .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .queueCreateInfoCount = queue_count,
-        .pQueueCreateInfos = &queue_create_infos[0],
-        .pEnabledFeatures = &features,
-        .enabledExtensionCount = 1,
-        .ppEnabledExtensionNames = &required_extensions[0],
-    };
-
-    _ = instance_dispatch.vkCreateDevice(device.physical_device, &device_create_info, null, &device.handle);
-    device.vkGetDeviceProcAddr = @as(c.PFN_vkGetDeviceProcAddr, @ptrCast(instance_dispatch.vkGetInstanceProcAddr(instance_dispatch.handle, "vkGetDeviceProcAddr"))) orelse return error.FunctionNotFound;
-
-    device.vkAllocateCommandBuffers = @as(c.PFN_vkAllocateCommandBuffers, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkAllocateCommandBuffers"))) orelse return error.FunctionNotFound;
-    device.vkAllocateMemory = @as(c.PFN_vkAllocateMemory, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkAllocateMemory"))) orelse return error.FunctionNotFound;
-    device.vkAllocateDescriptorSets = @as(c.PFN_vkAllocateDescriptorSets, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkAllocateDescriptorSets"))) orelse return error.FunctionNotFound;
-    device.vkGetDeviceQueue = @as(c.PFN_vkGetDeviceQueue, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkGetDeviceQueue"))) orelse return error.FunctionNotFound;
-    device.vkQueueSubmit = @as(c.PFN_vkQueueSubmit, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkQueueSubmit"))) orelse return error.FunctionNotFound;
-    device.vkQueuePresentKHR = @as(c.PFN_vkQueuePresentKHR, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkQueuePresentKHR"))) orelse return error.FunctionNotFound;
-    device.vkQueueWaitIdle = @as(c.PFN_vkQueueWaitIdle, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkQueueWaitIdle"))) orelse return error.FunctionNotFound;
-    device.vkGetSwapchainImagesKHR = @as(c.PFN_vkGetSwapchainImagesKHR, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkGetSwapchainImagesKHR"))) orelse return error.FunctionNotFound;
-    device.vkGetImageMemoryRequirements = @as(c.PFN_vkGetImageMemoryRequirements, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkGetImageMemoryRequirements"))) orelse return error.FunctionNotFound;
-    device.vkGetBufferMemoryRequirements = @as(c.PFN_vkGetBufferMemoryRequirements, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkGetBufferMemoryRequirements"))) orelse return error.FunctionNotFound;
-    device.vkBindBufferMemory = @as(c.PFN_vkBindBufferMemory, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkBindBufferMemory"))) orelse return error.FunctionNotFound;
-    device.vkBindImageMemory = @as(c.PFN_vkBindImageMemory, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkBindImageMemory"))) orelse return error.FunctionNotFound;
-    device.vkAcquireNextImageKHR = @as(c.PFN_vkAcquireNextImageKHR, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkAcquireNextImageKHR"))) orelse return error.FunctionNotFound;
-    device.vkWaitForFences = @as(c.PFN_vkWaitForFences, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkWaitForFences"))) orelse return error.FunctionNotFound;
-    device.vkResetFences = @as(c.PFN_vkResetFences, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkResetFences"))) orelse return error.FunctionNotFound;
-    device.vkCreateSwapchainKHR = @as(c.PFN_vkCreateSwapchainKHR, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateSwapchainKHR"))) orelse return error.FunctionNotFound;
-    device.vkCreateImage = @as(c.PFN_vkCreateImage, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateImage"))) orelse return error.FunctionNotFound;
-    device.vkCreateImageView = @as(c.PFN_vkCreateImageView, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateImageView"))) orelse return error.FunctionNotFound;
-    device.vkCreateShaderModule = @as(c.PFN_vkCreateShaderModule, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateShaderModule"))) orelse return error.FunctionNotFound;
-    device.vkCreatePipelineLayout = @as(c.PFN_vkCreatePipelineLayout, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreatePipelineLayout"))) orelse return error.FunctionNotFound;
-    device.vkCreateRenderPass = @as(c.PFN_vkCreateRenderPass, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateRenderPass"))) orelse return error.FunctionNotFound;
-    device.vkCreateGraphicsPipelines = @as(c.PFN_vkCreateGraphicsPipelines, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateGraphicsPipelines"))) orelse return error.FunctionNotFound;
-    device.vkCreateFramebuffer = @as(c.PFN_vkCreateFramebuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateFramebuffer"))) orelse return error.FunctionNotFound;
-    device.vkCreateCommandPool = @as(c.PFN_vkCreateCommandPool, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateCommandPool"))) orelse return error.FunctionNotFound;
-    device.vkCreateSemaphore = @as(c.PFN_vkCreateSemaphore, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateSemaphore"))) orelse return error.FunctionNotFound;
-    device.vkCreateFence = @as(c.PFN_vkCreateFence, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateFence"))) orelse return error.FunctionNotFound;
-    device.vkCreateBuffer = @as(c.PFN_vkCreateBuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateBuffer"))) orelse return error.FunctionNotFound;
-    device.vkCreateSampler = @as(c.PFN_vkCreateSampler, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateSampler"))) orelse return error.FunctionNotFound;
-    device.vkDestroySampler = @as(c.PFN_vkDestroySampler, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroySampler"))) orelse return error.FunctionNotFound;
-    device.vkCreateDescriptorSetLayout = @as(c.PFN_vkCreateDescriptorSetLayout, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateDescriptorSetLayout"))) orelse return error.FunctionNotFound;
-    device.vkDestroyCommandPool = @as(c.PFN_vkDestroyCommandPool, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyCommandPool"))) orelse return error.FunctionNotFound;
-    device.vkCreateDescriptorPool = @as(c.PFN_vkCreateDescriptorPool, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCreateDescriptorPool"))) orelse return error.FunctionNotFound;
-    device.vkDestroyPipeline = @as(c.PFN_vkDestroyPipeline, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyPipeline"))) orelse return error.FunctionNotFound;
-    device.vkDestroyPipelineLayout = @as(c.PFN_vkDestroyPipelineLayout, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyPipelineLayout"))) orelse return error.FunctionNotFound;
-    device.vkDestroyRenderPass = @as(c.PFN_vkDestroyRenderPass, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyRenderPass"))) orelse return error.FunctionNotFound;
-    device.vkDestroySwapchainKHR = @as(c.PFN_vkDestroySwapchainKHR, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroySwapchainKHR"))) orelse return error.FunctionNotFound;
-    device.vkDestroyImage = @as(c.PFN_vkDestroyImage, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyImage"))) orelse return error.FunctionNotFound;
-    device.vkDestroyImageView = @as(c.PFN_vkDestroyImageView, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyImageView"))) orelse return error.FunctionNotFound;
-    device.vkDestroyShaderModule = @as(c.PFN_vkDestroyShaderModule, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyShaderModule"))) orelse return error.FunctionNotFound;
-    device.vkDestroySemaphore = @as(c.PFN_vkDestroySemaphore, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroySemaphore"))) orelse return error.FunctionNotFound;
-    device.vkDestroyFence = @as(c.PFN_vkDestroyFence, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyFence"))) orelse return error.FunctionNotFound;
-    device.vkDestroyFramebuffer = @as(c.PFN_vkDestroyFramebuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyFramebuffer"))) orelse return error.FunctionNotFound;
-    device.vkDestroyBuffer = @as(c.PFN_vkDestroyBuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyBuffer"))) orelse return error.FunctionNotFound;
-    device.vkDestroyDescriptorSetLayout = @as(c.PFN_vkDestroyDescriptorSetLayout, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyDescriptorSetLayout"))) orelse return error.FunctionNotFound;
-    device.vkDestroyDescriptorPool = @as(c.PFN_vkDestroyDescriptorPool, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyDescriptorPool"))) orelse return error.FunctionNotFound;
-    device.vkBeginCommandBuffer = @as(c.PFN_vkBeginCommandBuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkBeginCommandBuffer"))) orelse return error.FunctionNotFound;
-    device.vkCmdBeginRenderPass = @as(c.PFN_vkCmdBeginRenderPass, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdBeginRenderPass"))) orelse return error.FunctionNotFound;
-    device.vkCmdBindPipeline = @as(c.PFN_vkCmdBindPipeline, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdBindPipeline"))) orelse return error.FunctionNotFound;
-    device.vkCmdBindVertexBuffers = @as(c.PFN_vkCmdBindVertexBuffers, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdBindVertexBuffers"))) orelse return error.FunctionNotFound;
-    device.vkCmdBindIndexBuffer = @as(c.PFN_vkCmdBindIndexBuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdBindIndexBuffer"))) orelse return error.FunctionNotFound;
-    device.vkCmdSetViewport = @as(c.PFN_vkCmdSetViewport, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdSetViewport"))) orelse return error.FunctionNotFound;
-    device.vkCmdSetScissor = @as(c.PFN_vkCmdSetScissor, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdSetScissor"))) orelse return error.FunctionNotFound;
-    device.vkCmdDraw = @as(c.PFN_vkCmdDraw, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdDraw"))) orelse return error.FunctionNotFound;
-    device.vkCmdDrawIndexed = @as(c.PFN_vkCmdDrawIndexed, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdDrawIndexed"))) orelse return error.FunctionNotFound;
-    device.vkCmdCopyBuffer = @as(c.PFN_vkCmdCopyBuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdCopyBuffer"))) orelse return error.FunctionNotFound;
-    device.vkCmdCopyBufferToImage = @as(c.PFN_vkCmdCopyBufferToImage, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdCopyBufferToImage"))) orelse return error.FunctionNotFound;
-    device.vkCmdPushConstants = @as(c.PFN_vkCmdPushConstants, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdPushConstants"))) orelse return error.FunctionNotFound;
-    device.vkCmdPipelineBarrier = @as(c.PFN_vkCmdPipelineBarrier, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdPipelineBarrier"))) orelse return error.FunctionNotFound;
-    device.vkUpdateDescriptorSets = @as(c.PFN_vkUpdateDescriptorSets, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkUpdateDescriptorSets"))) orelse return error.FunctionNotFound;
-    device.vkCmdBindDescriptorSets = @as(c.PFN_vkCmdBindDescriptorSets, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdBindDescriptorSets"))) orelse return error.FunctionNotFound;
-    device.vkCmdEndRenderPass = @as(c.PFN_vkCmdEndRenderPass, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkCmdEndRenderPass"))) orelse return error.FunctionNotFound;
-    device.vkEndCommandBuffer = @as(c.PFN_vkEndCommandBuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkEndCommandBuffer"))) orelse return error.FunctionNotFound;
-    device.vkResetCommandBuffer = @as(c.PFN_vkResetCommandBuffer, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkResetCommandBuffer"))) orelse return error.FunctionNotFound;
-    device.vkFreeMemory = @as(c.PFN_vkFreeMemory, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkFreeMemory"))) orelse return error.FunctionNotFound;
-    device.vkFreeCommandBuffers = @as(c.PFN_vkFreeCommandBuffers, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkFreeCommandBuffers"))) orelse return error.FunctionNotFound;
-    device.vkFreeDescriptorSets = @as(c.PFN_vkFreeDescriptorSets, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkFreeDescriptorSets"))) orelse return error.FunctionNotFound;
-    device.vkMapMemory = @as(c.PFN_vkMapMemory, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkMapMemory"))) orelse return error.FunctionNotFound;
-    device.vkUnmapMemory = @as(c.PFN_vkUnmapMemory, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkUnmapMemory"))) orelse return error.FunctionNotFound;
-    device.vkDestroyDevice = @as(c.PFN_vkDestroyDevice, @ptrCast(device.vkGetDeviceProcAddr(device.handle, "vkDestroyDevice"))) orelse return error.FunctionNotFound;
-
-    for (0..4) |i| {
-        device.vkGetDeviceQueue(device.handle, device.families[i], 0, &device.queues[i]);
-    }
-
-    instance_dispatch.vkGetPhysicalDeviceMemoryProperties(device.physical_device, &device.physical_device_properties);
-
-    return device;
-}
 
 fn read_file(path: []const u8) ![]u8 {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -551,10 +130,10 @@ pub fn graphics_pipeline_init(
 ) !GraphicsPipeline {
     var graphics_pipeline: GraphicsPipeline = undefined;
 
-    const vert_module = create_shader_module(device_dispatch, "assets/shader/vert.spv");
+    const vert_module = create_shader_module(device_dispatch, "zig-out/shader/vert.spv");
     defer device_dispatch.vkDestroyShaderModule(device_dispatch.handle, vert_module, null);
 
-    const frag_module = create_shader_module(device_dispatch, "assets/shader/frag.spv");
+    const frag_module = create_shader_module(device_dispatch, "zig-out/shader/frag.spv");
     defer device_dispatch.vkDestroyShaderModule(device_dispatch.handle, frag_module, null);
 
     const name = "main";
@@ -1156,10 +735,7 @@ pub fn painter_init(
         font.bitmap.height
     );
 
-    var plain_elements_texture: [256]u8 = undefined;
-    for (0..256) |i| {
-        plain_elements_texture[i] = 100;
-    }
+    var plain_elements_texture = [_]u8 { 100 } ** 256;
 
     painter.general_texture = image_init(
         device,
@@ -1193,22 +769,6 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
         const cols = window.cols - 1;
         const position_count: u32 = len * cols;
 
-        // if (len == 1) {
-        //     if (selection_boundary[1].x - selection_boundary[0].x == 0) break :blk;
-        //     position_count += selection_boundary[1].x - selection_boundary[0].x + 1;
-        // } else {
-        //     for (0..len) |i| {
-
-        //         if (i == 0) {
-        //             position_count += lines[i + selection_boundary[0].y].char_count - selection_boundary[0].x + 1;
-        //         } else if (i == len - 1) {
-        //             position_count += selection_boundary[1].x + 1;
-        //         } else {
-        //             position_count += lines[i + selection_boundary[0].y].char_count + 1;
-        //         }
-        //     }
-        // }
-
         if (painter.plain_elements.capacity <= position_count + 1) {
             _ = device.vkUnmapMemory(device.handle, painter.plain_elements.positions.memory);
             buffer_deinit(device, &painter.plain_elements.positions);
@@ -1225,21 +785,7 @@ fn update_painter_plain_elements(device: *const DeviceDispatch, painter: *Painte
             _ = device.vkMapMemory(device.handle, painter.plain_elements.positions.memory, 0, (1 + position_count) * @sizeOf([2]u32), 0, @ptrCast(&painter.plain_elements.dst));
         }
 
-        // painter.plain_elements.dst.len += position_count;
-
         var index: u32 = 1;
-        // if (len == 1) {
-        //     const max_start = math.max(selection_boundar[0].x, offset[0]);
-
-        //     for (max_start..selection_boundary[1].x + 1) |j| {
-        //         const jj: u32 = @intCast(j);
-        //         painter.plain_elements.dst[index] = .{
-        //             jj - offset[0], selection_boundary[0].y - offset[1],
-        //             255, 255, 255,
-        //         };
-        //         index += 1;
-        //     }
-        // } else {
         for (0..len) |i| {
             const boundary: [2]u32 = condition: {
                 if (i == 0) {
@@ -1971,12 +1517,4 @@ pub fn graphics_pipeline_deinit(dispatch: *const DeviceDispatch, graphics_pipeli
 
 pub fn device_deinit(device: *const DeviceDispatch) void {
     device.vkDestroyDevice(device.handle, null);
-}
-
-pub fn instance_deinit(instance: *const InstanceDispatch) void {
-    instance.vkDestroySurfaceKHR(instance.handle, instance.surface, null);
-    instance.vkDestroyInstance(instance.handle, null);
-
-    _ = c.dlclose(instance.library);
-    _ = ARENA.deinit();
 }

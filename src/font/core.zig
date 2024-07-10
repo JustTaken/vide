@@ -1,7 +1,69 @@
 const std = @import("std");
 const c = @import("../bind.zig").c;
 
+const math = @import("../math.zig");
+const Allocator = std.mem.Allocator;
+
+const Vec2D = math.Vec2D;
+const Size = Vec2D;
+const Offset = Vec2D;
+
 const PADDING: u32 = 3;
+
+const CBitmap = struct {
+    handle: [*c]u8,
+    size: Size,
+};
+
+const Bitmap = struct {
+    handle: []u8,
+    offsets: []Offset,
+
+    size: Size,
+    allocator: Allocator,
+
+    fn init(size: Size, allocator: Allocator) !Bitmap {
+        const bitmap = try allocator.alloc(u8, size.x * size.y);
+
+        @memset(bitmap, 0);
+
+        return Bitmap {
+            .handle = bitmap,
+            .offsets = try allocator.alloc(Offset, GLYPH_COUNT),
+            .size = size,
+            .allocator = allocator,
+        };
+    }
+
+    fn append(self: *Bitmap, from: *const CBitmap, offset: Offset) void {
+        @setRuntimeSafety(false);
+
+        for (0..from.size.y) |y| {
+            const self_line_offset = (y + offset.y) * self.size.x;
+            const from_line_offset = y * from.size.x;
+
+            for (0..from.size.x) |x| {
+                self.handle[offset.x + x + self_line_offset] = from.handle[x + from_line_offset];
+            }
+        }
+    }
+
+    fn append_offset(self: *Bitmap, offset: Offset, index: u32) void {
+        self.offsets[index] = offset;
+    }
+
+    fn deinit(self: *const Bitmap) void {
+        self.allocator.free(self.handle);
+        self.allocator.free(self.offsets);
+    }
+};
+
+const Glyph = struct {
+    bitmap: CBitmap,
+    offset: Offset,
+    top: i32,
+    left: u32,
+};
 
 const Face = struct {
     handle: c.FT_Face,
@@ -9,8 +71,69 @@ const Face = struct {
 
     em: u32,
     ascender: u32,
-    line_height: u32,
-    max_advance: u32,
+    glyph_size: Size,
+
+    const DPI: u32 = 72;
+
+    fn init(path: []const u8, size: u32) Face {
+        var library: c.FT_Library = undefined;
+        var face: c.FT_Face = undefined;
+
+        _ = c.FT_Init_FreeType(&library);
+        _ = c.FT_New_Face(library, &path[0], 0, &face);
+        _ = c.FT_Set_Char_Size(face, 0, size * DPI, DPI, DPI);
+
+        const glyph_size = Size.init(
+            math.from_fixed(face.*.size.*.metrics.max_advance),
+            math.from_fixed(face.*.size.*.metrics.height) + 1,
+        );
+
+        return Face {
+            .handle = face,
+            .library = library,
+            .glyph_size = glyph_size,
+            .ascender = math.from_fixed(face.*.size.*.metrics.ascender),
+            .em = face.*.units_per_EM,
+        };
+    }
+
+    fn get_glyph(
+        self: *const Face,
+        code: u32
+    ) Glyph {
+        const index = c.FT_Get_Char_Index(self.handle, code);
+        const glyph = self.handle.*.glyph;
+
+        _ = c.FT_Load_Glyph(self.handle, index, c.FT_LOAD_DEFAULT);
+        _ = c.FT_Render_Glyph(glyph, c.FT_RENDER_MODE_NORMAL);
+
+        const glyph_bitmap = glyph.*.bitmap;
+
+        const bitmap = CBitmap {
+            .handle = glyph_bitmap.buffer,
+            .size = Size.init(glyph_bitmap.width, glyph_bitmap.rows),
+        };
+
+        const i = code - 32;
+        const line: u32 = i / COLS;
+        const col: u32 = index - line * COLS;
+
+        const offset = Offset.init(
+            col * (self.glyph_size.x + PADDING),
+            line * (self.glyph_size.y + PADDING),
+        );
+
+        return Glyph {
+            .bitmap = bitmap,
+            .offset = offset,
+            .top = glyph.*.bitmap_top,
+            .left = math.from_fixed(glyph.*.metrics.horiBearingX),
+        };
+    }
+
+    fn deinit(self: *const Face) void {
+        _ = c.FT_Done_Face(self.handle);
+    }
 };
 
 pub const TrueType = struct {
@@ -19,173 +142,63 @@ pub const TrueType = struct {
 
     scale: f32,
     x_ratio: f32,
-    advance: u32,
-    line_height: u32,
-};
+    glyph_size: Size,
 
-const Bitmap = struct {
-    offsets: []Offset,
-    handle: []u8,
+    pub fn init(size: u32, path: []const u8, allocator: Allocator) !TrueType {
+        const face = Face.init(path, size);
+        defer face.deinit();
 
-    width: u32,
-    height: u32,
+        var bitmap = try Bitmap.init(
+            Size.init(
+                (face.glyph_size.x + PADDING) * COLS,
+                (face.glyph_size.y + PADDING) * ROWS,
+            ),
+            allocator,
+        );
 
-    allocator: std.mem.Allocator,
-};
+        for (32..127) |code| {
+            const i: u32 = @intCast(code);
+            const index = i - 32;
+            const glyph = face.get_glyph(i);
 
-const CBitmap = struct {
-    handle: [*c]u8,
-    width: u32,
-    height: u32,
-};
+            const insert_offset = Offset {
+                .x = glyph.offset.x + glyph.left,
+                .y = math.sub(glyph.offset.y + face.ascender, glyph.top),
+            };
 
-const Offset = struct {
-    x: u32,
-    y: u32,
-};
-
-inline fn bitmap_append(src: *const CBitmap, dst: *Bitmap, offset: Offset) void {
-    @setRuntimeSafety(false);
-
-    for (0..src.height) |y| {
-        const dst_line_offset = (y + offset.y) * dst.width;
-        const src_line_offset = y * src.width;
-
-        for (0..src.width) |x| {
-            dst.handle[offset.x + x + dst_line_offset] = src.handle[x + src_line_offset];
+            bitmap.append(&glyph.bitmap, insert_offset);
+            bitmap.append_offset(glyph.offset, index);
         }
+
+        return TrueType {
+            .bitmap = bitmap,
+            .glyph_count = GLYPH_COUNT,
+            .glyph_size = face.glyph_size,
+            .x_ratio = math.divide(face.glyph_size.x, face.glyph_size.y),
+            .scale = math.divide(face.glyph_size.y, face.em),
+        };
     }
-}
 
-inline fn division(numerator: u32, denumerator: u32) f32 {
-    const f_numerator: f32 = @floatFromInt(numerator);
-    const f_denumerator: f32 = @floatFromInt(denumerator);
+    pub fn normalized_width(self: *const TrueType) f32 {
+        return math.divide(self.advance, self.bitmap.width);
+    }
 
-    return f_numerator / f_denumerator;
-}
+    pub fn normalized_height(self: *const TrueType) f32 {
+        return math.divide(self.line_height, self.bitmap.height);
+    }
 
-inline fn from_fixed(fixed: isize) u32 {
-    return @intCast(fixed >> 6);
-}
+    pub fn glyph_normalized_offset(self: *const TrueType, index: usize) [2]f32 {
+        return .{
+            math.divide(self.bitmap.offsets[index].x, self.bitmap.width),
+            math.divide(self.bitmap.offsets[index].y, self.bitmap.height),
+        };
+    }
 
-inline fn add_glyph(
-    bitmap: *Bitmap,
-    face: *const Face,
-    position: Offset,
-    code: u32
-) void {
-    const index = c.FT_Get_Char_Index(face.handle, code);
-    const glyph = face.handle.*.glyph;
-
-    _ = c.FT_Load_Glyph(face.handle, index, c.FT_LOAD_DEFAULT);
-    _ = c.FT_Render_Glyph(glyph, c.FT_RENDER_MODE_NORMAL);
-
-    const glyph_bitmap = glyph.*.bitmap;
-    const width = glyph_bitmap.width;
-    const height = glyph_bitmap.rows;
-    const left_bearing = from_fixed(glyph.*.metrics.horiBearingX);
-
-    const src_bitmap = CBitmap {
-        .handle = glyph_bitmap.buffer,
-        .width = width,
-        .height = height,
-    };
-
-    const top = glyph.*.bitmap_top;
-
-    const top_offset: i32 = @intCast(position.y + face.ascender);
-    const left_offset: u32 = position.x + left_bearing;
-
-    const offset = Offset {
-        .x = left_offset,
-        .y = @intCast(top_offset - top),
-    };
-
-    bitmap_append(&src_bitmap, bitmap, offset);
-}
-
-fn face_init(size: u32) Face {
-    var face: Face = undefined;
-
-    _ = c.FT_Init_FreeType(&face.library);
-    _ = c.FT_New_Face(face.library, "assets/font/font.ttf", 0, &face.handle);
-    _ = c.FT_Set_Char_Size(face.handle, 0, size * 72, 72, 72);
-
-    face.line_height = from_fixed(face.handle.*.size.*.metrics.height) + 1;
-    face.max_advance = from_fixed(face.handle.*.size.*.metrics.max_advance);
-    face.ascender = from_fixed(face.handle.*.size.*.metrics.ascender);
-    face.em = face.handle.*.units_per_EM;
-
-    return face;
-}
+    pub fn deinit(self: *const TrueType) void {
+        self.bitmap.deinit();
+    }
+};
 
 const ROWS: u32 = 9;
 const COLS: u32 = 11;
 const GLYPH_COUNT: u32 = 95;
-
-pub fn init(size: u32, allocator: std.mem.Allocator) !TrueType {
-    var font: TrueType = undefined;
-    const face = face_init(size);
-
-    font.glyph_count = GLYPH_COUNT;
-    font.advance = face.max_advance;
-    font.line_height = face.line_height;
-    font.x_ratio = division(font.advance, font.line_height);
-    font.scale = division(font.line_height, face.em);
-    font.bitmap.width = (face.max_advance + PADDING) * COLS;
-    font.bitmap.height = (font.line_height + PADDING) * ROWS;
-    font.bitmap.handle = try allocator.alloc(u8, font.bitmap.width * font.bitmap.height);
-    font.bitmap.offsets = try allocator.alloc(Offset, GLYPH_COUNT);
-    font.bitmap.allocator = allocator;
-
-    @memset(font.bitmap.handle, 0);
-
-    const start: u32 = 32;
-    const end: u32 = 127;
-    for (start..end) |code| {
-        const i: u32 = @intCast(code);
-
-        const index = i - 32;
-        const line: u32 = index / COLS;
-        const col: u32 = index - line * COLS;
-
-        const offset = Offset {
-            .x = col * (font.advance + PADDING),
-            .y = line * (font.line_height + PADDING),
-        };
-
-        add_glyph(&font.bitmap, &face, offset, i);
-        font.bitmap.offsets[index] = offset;
-    }
-
-    face_deinit(&face);
-
-    return font;
-}
-
-pub fn normalized_width(font: *const TrueType) f32 {
-    return division(font.advance, font.bitmap.width);
-}
-
-pub fn normalized_height(font: *const TrueType) f32 {
-    return division(font.line_height, font.bitmap.height);
-}
-
-pub inline fn glyph_normalized_offset(font: *const TrueType, index: usize) [2]f32 {
-    return .{
-        division(font.bitmap.offsets[index].x, font.bitmap.width),
-        division(font.bitmap.offsets[index].y, font.bitmap.height),
-    };
-}
-
-fn face_deinit(face: *const Face) void {
-    _ = c.FT_Done_Face(face.handle);
-}
-
-fn bitmap_deinit(bitmap: *const Bitmap) void {
-    bitmap.allocator.free(bitmap.handle);
-}
-
-pub fn deinit(core: *const TrueType) void {
-    bitmap_deinit(&core.bitmap);
-}

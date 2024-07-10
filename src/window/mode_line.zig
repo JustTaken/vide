@@ -1,27 +1,22 @@
 const std = @import("std");
 
-const util = @import("util.zig");
-
 const Allocator = std.mem.Allocator;
-const Self = @This();
 
-content: []u8,
-allocator: Allocator,
+pub const ModeLine = struct {
+    content: []u8,
+    allocator: Allocator,
 
-const Error = error {
-    AllocationFail,
+    pub fn init(cols: u32, allocator: Allocator) !ModeLine {
+        return ModeLine {
+            .content = try allocator.alloc(u8, cols),
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *const ModeLine) void {
+        self.allocator.free(self.content);
+    }
 };
-
-pub fn init(allocator: Allocator, cols: u32) Error!Self {
-    return Self {
-        .content = allocator.alloc(u8, cols) catch return Error.AllocationFail,
-        .allocator = allocator,
-    };
-}
-
-pub fn deinit(self: *const Self) void {
-    self.allocator.free(content);
-}
 
 // pub fn update(self: *ModeLine) !void {
 //     @setRuntimeSafety(false);
