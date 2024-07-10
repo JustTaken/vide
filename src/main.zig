@@ -1,7 +1,6 @@
 const std = @import("std");
 const wayland = @import("wayland/core.zig");
-// const vulkan = @import("vulkan/core.zig");
-const TrueType = @import("font/core.zig").TrueType;
+const TrueType = @import("truetype.zig").TrueType;
 const Window = @import("window/core.zig").Core;
 const Wayland = @import("wayland/core.zig").Wayland;
 const Instance = @import("vulkan/instance.zig").Instance;

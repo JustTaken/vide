@@ -1,7 +1,7 @@
 const std = @import("std");
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 
-const math = @import("../math.zig");
+const math = @import("math.zig");
 const Allocator = std.mem.Allocator;
 
 const Vec2D = math.Vec2D;
