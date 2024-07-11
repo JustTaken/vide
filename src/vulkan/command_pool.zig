@@ -48,7 +48,7 @@ pub const CommandPool = struct {
         return command_pool;
     }
 
-    pub fn allocate_buffer(self: *CommandPool, device: *const Device) !Buffer {
+    pub fn allocate_buffer(self: *const CommandPool, device: *const Device) !Buffer {
         return Buffer.begin(device, self);
     }
 
@@ -66,8 +66,8 @@ const Buffer = struct {
     handle: c.VkCommandBuffer,
     pool: *const CommandPool,
 
-    fn end(self: *Buffer, device: *const Device) !void {
-        device.dispatch.vkEndCommandBuffer(self.handle);
+    pub fn end(self: *const Buffer, device: *const Device) !void {
+        try check(device.dispatch.vkEndCommandBuffer(self.handle));
 
         const submit_info = c.VkSubmitInfo {
             .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -77,11 +77,11 @@ const Buffer = struct {
 
         try check(device.dispatch.vkQueueSubmit(device.queues[0], 1, &submit_info, null));
         try check(device.dispatch.vkQueueWaitIdle(device.queues[0]));
-        device.disaptch.vkFreeCommandBuffers(device.handle, self.pool, 1, &self.handle);
+        device.dispatch.vkFreeCommandBuffers(device.handle, self.pool.handle, 1, &self.handle);
     }
 
     fn begin(device: *const Device, pool: *const CommandPool) !Buffer {
-        var command_buffer: Buffer = undefined;
+        var buffer: Buffer = undefined;
 
         const alloc_info = c.VkCommandBufferAllocateInfo {
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -90,15 +90,15 @@ const Buffer = struct {
             .commandBufferCount = 1,
         };
 
-        try check(device.dispatch.vkAllocateCommandBuffers(device.handle, &alloc_info, &command_buffer));
+        try check(device.dispatch.vkAllocateCommandBuffers(device.handle, &alloc_info, &buffer.handle));
         const begin_info = c.VkCommandBufferBeginInfo {
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         };
 
-        try check(device.dispatch.vkBeginCommandBuffer(command_buffer.handle, &begin_info));
-        command_buffer.pool = pool;
+        try check(device.dispatch.vkBeginCommandBuffer(buffer.handle, &begin_info));
+        buffer.pool = pool;
 
-        return command_buffer;
+        return buffer;
     }
 };

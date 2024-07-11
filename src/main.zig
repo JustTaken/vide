@@ -21,10 +21,10 @@ pub fn main() !void {
     const graphics_pipeline = try GraphicsPipeline.init(&instance, &device);
     const swapchain = try Swapchain.init(&instance, &device, &graphics_pipeline, window.size, allocator);
     const command_pool = try CommandPool.init(&device, &swapchain, allocator);
-    // const painter = try Painter.init(&device, &graphics_pipeline, &command_pool, window, &font, allocator);
+    const painter = try Painter.init(&device, &graphics_pipeline, &command_pool, &font, window.scale, allocator);
 
     font.deinit();
-    // painter.deinit(&device);
+    painter.deinit(&device);
     command_pool.deinit(&device);
     swapchain.deinit(&device);
     graphics_pipeline.deinit(&device);

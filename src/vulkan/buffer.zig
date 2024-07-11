@@ -3,10 +3,11 @@ const check = @import("result.zig").check;
 const util = @import("../util.zig");
 
 const Device = @import("device.zig").Device;
-const Descriptor = @import("graphics_pipeline.zig").Descritor;
+const Descriptor = @import("graphics_pipeline.zig").Descriptor;
+const DescriptorSet = @import("graphics_pipeline.zig").DescriptorSet;
 const CommandPool = @import("command_pool.zig").CommandPool;
 
-const Buffer = struct {
+pub const Buffer = struct {
     handle: c.VkBuffer,
     memory: c.VkDeviceMemory,
 
@@ -26,12 +27,12 @@ const Buffer = struct {
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
         };
 
-        try check(device.vkCreateBuffer(device.handle, &info, null, &buffer.handle));
+        try check(device.dispatch.vkCreateBuffer(device.handle, &info, null, &buffer.handle));
 
         var requirements: c.VkMemoryRequirements = undefined;
-        try check(device.vkGetBufferMemoryRequirements(device.handle, buffer.handle, &requirements));
+        device.dispatch.vkGetBufferMemoryRequirements(device.handle, buffer.handle, &requirements);
 
-        buffer.memory = device.allocate_memory(properties, &requirements);
+        buffer.memory = try device.allocate_memory(properties, &requirements);
         try check(device.dispatch.vkBindBufferMemory(device.handle, buffer.handle, buffer.memory, 0));
 
         return buffer;
@@ -46,14 +47,14 @@ const Buffer = struct {
         command_pool: *const CommandPool,
     ) !Buffer {
         const len: u32 = @intCast(data.len);
-        const buffer = init(T, device, usage, properties, len);
+        const buffer = try init(T, len, usage, properties, device);
 
         var dst: []T = undefined;
 
-        const staging_buffer = init(T, device, c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, len);
-        try check(device.vkMapMemory(device.handle, staging_buffer.memory, 0, len * @sizeOf(T), 0, @ptrCast(&dst)));
+        const staging_buffer = try init(T, len, c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, device);
+        try check(device.dispatch.vkMapMemory(device.handle, staging_buffer.memory, 0, len * @sizeOf(T), 0, @ptrCast(&dst)));
 
-        util.copy(T, data, &dst);
+        util.copy(T, data, dst);
 
         const copy_info = c.VkBufferCopy {
             .srcOffset = 0,
@@ -61,18 +62,18 @@ const Buffer = struct {
             .size = @sizeOf(T) * len,
         };
 
-        const command_buffer = command_pool.allocate_buffer(device);
+        const command_buffer = try command_pool.allocate_buffer(device);
 
-        device.vkCmdCopyBuffer(command_buffer, staging_buffer.handle, buffer.handle, 1, &copy_info);
-        device.vkUnmapMemory(device.handle, staging_buffer.memory);
+        device.dispatch.vkCmdCopyBuffer(command_buffer.handle, staging_buffer.handle, buffer.handle, 1, &copy_info);
+        device.dispatch.vkUnmapMemory(device.handle, staging_buffer.memory);
 
-        command_buffer.end(device);
+        try command_buffer.end(device);
         staging_buffer.deinit(device);
 
         return buffer;
     }
 
-    fn deinit(self: *const Buffer, device: *const Device) void {
+    pub fn deinit(self: *const Buffer, device: *const Device) void {
         device.dispatch.vkDestroyBuffer(device.handle, self.handle, null);
         device.dispatch.vkFreeMemory(device.handle, self.memory, null);
     }
@@ -80,7 +81,7 @@ const Buffer = struct {
 
 pub fn Vec(T: type) type {
     return struct {
-        handle: Buffer,
+        buffer: Buffer,
         elements: []T,
         capacity: u32,
 
@@ -97,7 +98,7 @@ pub fn Vec(T: type) type {
         ) !Self {
             var vec: Self = undefined;
 
-            vec.handle = Buffer.init(
+            vec.buffer = try Buffer.init(
                 T,
                 capacity,
                 usage,
@@ -105,7 +106,7 @@ pub fn Vec(T: type) type {
                 device,
             );
 
-            try check(device.dispatch.vkMapMemory(device.handle, vec.handle.memory, 0, capacity * @sizeOf(T), 0, @ptrCast(&vec.elements)));
+            try check(device.dispatch.vkMapMemory(device.handle, vec.buffer.memory, 0, capacity * @sizeOf(T), 0, @ptrCast(&vec.elements)));
 
             vec.capacity = capacity;
             vec.elements.len = 0;
@@ -116,18 +117,42 @@ pub fn Vec(T: type) type {
             return vec;
         }
 
-        fn deinit(self: *const Self, device: *const Device) void {
-            self.handle.deinit(device);
+        pub fn push(self: *Self, item: T, device: *const Device) !void {
+            const len = self.elements.len;
+
+            if (self.capacity <= len) {
+                const new_len = len * 2;
+                try check(device.vkUnmapMemory(device.handle, self.handle.memory));
+
+                self.deinit(device);
+                self.buffer = try Buffer.init(
+                    T,
+                    new_len,
+                    self.usage,
+                    self.properties,
+                    device,
+                );
+
+                self.capacity = new_len;
+                try check(device.vkMapMemory(device.handle, self.buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&self.elements)));
+            }
+
+            self.elements.len += 1;
+            self.elements[len] = item;
+        }
+
+        pub fn deinit(self: *const Self, device: *const Device) void {
+            self.buffer.deinit(device);
         }
     };
 }
 
-const Uniform = struct {
-    buffer: Buffer,
-    set: c.VkDescriptorSet,
+pub const Uniform = struct {
+    handle: Buffer,
+    set: DescriptorSet,
     dst: []f32,
 
-    fn init(
+    pub fn init(
         T: type,
         data: []const T,
         binding: u32,
@@ -138,16 +163,27 @@ const Uniform = struct {
 
         const len: u32 = @intCast(data.len);
 
-        uniform.buffer = Buffer.init(T, device, c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, len);
+        uniform.handle = try Buffer.init(
+            T, 
+            len,
+            c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 
+            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+            device, 
+        );
 
-        try check(device.vkMapMemory(device.handle, uniform.buffer.memory, 0, len * @sizeOf(T), 0, @ptrCast(&uniform.dst)));
+        try check(device.dispatch.vkMapMemory(device.handle, uniform.handle.memory, 0, len * @sizeOf(T), 0, @ptrCast(&uniform.dst)));
 
-        util.copy(T, data, &uniform.dst);
+        util.copy(T, data, uniform.dst);
 
-        uniform.set = descriptor.get_set(device);
-        uniform.set.update(null, .{ .buffer = uniform.buffer, .T = T, .len = len }, binding, device);
+        uniform.set = try descriptor.get_set(device);
+        uniform.set.update_buffer(T, uniform.handle.handle, binding, len, device);
 
         return uniform;
     }
+
+    pub fn deinit(self: *const Uniform, device: *const Device) void {
+        self.handle.deinit(device);
+    }
+    
 };
 

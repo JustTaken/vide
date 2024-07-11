@@ -17,6 +17,7 @@ pub fn Core(Backend: type) type {
         mode_line: ModeLine,
         command_line: CommandLine,
         size: Size,
+        scale: f32,
 
         allocator: Allocator,
         running: bool,
@@ -63,6 +64,7 @@ pub fn Core(Backend: type) type {
             self.mode_line = try ModeLine.init(10, allocator);
             self.command_line = try CommandLine.init(10, allocator);
             self.size = Size.init(width, height);
+            self.scale = 1.0;
             self.allocator = allocator;
 
             return self;

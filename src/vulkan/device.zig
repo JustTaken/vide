@@ -225,14 +225,14 @@ pub const Device = struct {
         return device;
     }
 
-    fn allocate_memory(
+    pub fn allocate_memory(
         self: *const Device,
         properties: u32,
         requirements: *const c.VkMemoryRequirements
     ) !c.VkDeviceMemory {
         var index: u32 = 0;
 
-        for (0..self.physical_device.memory_properties) |i| {
+        for (0..self.physical_device.memory_properties.memoryTypeCount) |i| {
             const a: u5 = @intCast(i);
             const b: u32 = 1;
 

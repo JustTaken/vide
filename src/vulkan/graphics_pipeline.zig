@@ -374,10 +374,10 @@ pub const Descriptor = struct {
     pool: c.VkDescriptorPool,
     layout: c.VkDescriptorSetLayout,
 
-    fn get_set(
+    pub fn get_set(
         self: *const Descriptor,
         device: *const Device,
-    ) !c.VkDescriptorSet {
+    ) !DescriptorSet {
         const info = c.VkDescriptorSetAllocateInfo {
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = self.pool,
@@ -386,12 +386,12 @@ pub const Descriptor = struct {
         };
 
         var set: c.VkDescriptorSet = undefined;
-        try check(device.vkAllocateDescriptorSets(device.handle, &info, &set));
+        try check(device.dispatch.vkAllocateDescriptorSets(device.handle, &info, &set));
 
         return DescriptorSet.init(set);
     }
 
-    fn deinit(self: *const Descriptor, device: *const Device) void {
+    pub fn deinit(self: *const Descriptor, device: *const Device) void {
         device.dispatch.vkDestroyDescriptorPool(device.handle, self.pool, null);
         device.dispatch.vkDestroyDescriptorSetLayout(device.handle, self.layout, null);
     }
@@ -403,8 +403,8 @@ pub const ImageSetConfig = struct {
 };
 
 pub const BufferSetConfig = struct {
-    buffer: c.VkBuffer,
     T: type,
+    buffer: c.VkBuffer,
     len: u32,
 };
 
@@ -417,51 +417,56 @@ pub const DescriptorSet = struct {
         };
     }
 
-    fn update(
+    pub fn update_buffer(
         self: *const DescriptorSet,
-        image: ?ImageSetConfig,
-        buffer: ?BufferSetConfig,
+        T: type,
+        buffer: c.VkBuffer,
+        binding: u32,
+        len: u32,
+        device: *const Device,
+    ) void {
+        const info = c.VkDescriptorBufferInfo {
+            .buffer = buffer,
+            .offset = 0,
+            .range = @sizeOf(T) * len,
+        };
+
+        const write = c.VkWriteDescriptorSet {
+            .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = self.handle,
+            .dstBinding = binding,
+            .dstArrayElement = 0,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pBufferInfo = &info,
+            .descriptorCount = 1,
+        };
+
+        device.dispatch.vkUpdateDescriptorSets(device.handle, 1, &.{ write }, 0, null);
+    }
+
+    pub fn update_image(
+        self: *const DescriptorSet,
+        view: c.VkImageView,
+        sampler: c.VkSampler,
         binding: u32,
         device: *const Device,
     ) void {
-        if (image) |config| {
-            const info = c.VkDescriptorImageInfo {
-                .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                .imageView = config.view,
-                .sampler = config.sampler,
-            };
+        const info = c.VkDescriptorImageInfo {
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .imageView = view,
+            .sampler = sampler,
+        };
 
-            const write = c.VkWriteDescriptorSet {
-                .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = self.handle,
-                .dstBinding = binding,
-                .descriptorCount = 1,
-                .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &info,
-            };
+        const write = c.VkWriteDescriptorSet {
+            .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = self.handle,
+            .dstBinding = binding,
+            .descriptorCount = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &info,
+        };
 
-            device.dispatch.vkUpdateDescriptorSets(device.handle, 1, &.{ write }, 0, null);
-        }
-
-        if (buffer) |config| {
-            const info = c.VkDescriptorBufferInfo {
-                .buffer = config.buffer,
-                .offset = 0,
-                .range = @sizeOf(config.T) * config.len,
-            };
-
-            const write = c.VkWriteDescriptorSet {
-                .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = self.handle,
-                .dstBinding = binding,
-                .dstArrayElement = 0,
-                .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .pBufferInfo = &info,
-                .descriptorCount = 1,
-            };
-
-            device.dispatch.vkUpdateDescriptorSets(device.handle, 1, &.{ write }, 0, null);
-        }
+        device.dispatch.vkUpdateDescriptorSets(device.handle, 1, &.{ write }, 0, null);
     }
 };
 

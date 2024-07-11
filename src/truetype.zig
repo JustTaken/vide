@@ -180,17 +180,17 @@ pub const TrueType = struct {
     }
 
     pub fn normalized_width(self: *const TrueType) f32 {
-        return math.divide(self.advance, self.bitmap.width);
+        return math.divide(self.glyph_size.x, self.bitmap.size.x);
     }
 
     pub fn normalized_height(self: *const TrueType) f32 {
-        return math.divide(self.line_height, self.bitmap.height);
+        return math.divide(self.glyph_size.y, self.bitmap.size.y);
     }
 
     pub fn glyph_normalized_offset(self: *const TrueType, index: usize) [2]f32 {
         return .{
-            math.divide(self.bitmap.offsets[index].x, self.bitmap.width),
-            math.divide(self.bitmap.offsets[index].y, self.bitmap.height),
+            math.divide(self.bitmap.offsets[index].x, self.bitmap.size.x),
+            math.divide(self.bitmap.offsets[index].y, self.bitmap.size.y),
         };
     }
 

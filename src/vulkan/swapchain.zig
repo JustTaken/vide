@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 const Instance = @import("instance.zig").Instance;
 const Device = @import("device.zig").Device;
 const GraphicsPipeline = @import("graphics_pipeline.zig").GraphicsPipeline;
-const Image = @import("image.zig").Image;
+const Image = @import("image.zig").Texture;
 
 const Size = @import("../math.zig").Vec2D;
 
