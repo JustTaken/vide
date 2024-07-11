@@ -118,11 +118,11 @@ pub fn Vec(T: type) type {
         }
 
         pub fn push(self: *Self, item: T, device: *const Device) !void {
-            const len = self.elements.len;
+            const count = self.len();
 
-            if (self.capacity <= len) {
-                const new_len = len * 2;
-                try check(device.vkUnmapMemory(device.handle, self.handle.memory));
+            if (self.capacity <= count) {
+                const new_len = count * 2;
+                device.dispatch.vkUnmapMemory(device.handle, self.buffer.memory);
 
                 self.deinit(device);
                 self.buffer = try Buffer.init(
@@ -134,11 +134,19 @@ pub fn Vec(T: type) type {
                 );
 
                 self.capacity = new_len;
-                try check(device.vkMapMemory(device.handle, self.buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&self.elements)));
+                try check(device.dispatch.vkMapMemory(device.handle, self.buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&self.elements)));
             }
 
             self.elements.len += 1;
-            self.elements[len] = item;
+            self.elements[count] = item;
+        }
+
+        pub fn reset(self: *Self) void {
+            self.elements.len = 0;
+        }
+
+        pub fn len(self: *const Self) u32 {
+            return @intCast(self.elements.len);
         }
 
         pub fn deinit(self: *const Self, device: *const Device) void {

@@ -2,6 +2,7 @@ const c = @import("../bind.zig").c;
 const std = @import("std");
 
 const check = @import("result.zig").check;
+const Result = @import("result.zig").Result;
 
 const Allocator = std.mem.Allocator;
 
@@ -10,10 +11,15 @@ const Device = @import("device.zig").Device;
 const GraphicsPipeline = @import("graphics_pipeline.zig").GraphicsPipeline;
 const Image = @import("image.zig").Texture;
 
+const ResizeListener = @import("../window/core.zig").ResizeListener;
+
 const Size = @import("../math.zig").Vec2D;
 
 pub const Swapchain = struct {
+    device: *const Device,
     handle: c.VkSwapchainKHR,
+    surface: c.VkSurfaceKHR,
+    render_pass: c.VkRenderPass,
     images: []c.VkImage,
     image_views: []c.VkImageView,
     framebuffers: []c.VkFramebuffer,
@@ -22,16 +28,18 @@ pub const Swapchain = struct {
     image_available: c.VkSemaphore,
     in_flight: c.VkFence,
 
-    capabilities: c.VkSurfaceCapabilitiesKHR,
-    extent: c.VkExtent2D,
+    size: Size,
+    format: c.VkSurfaceFormatKHR,
     image_count: u32,
+    valid: bool,
 
     allocator: Allocator,
 
     pub fn init(
-        instance: *const Instance,
         device: *const Device,
-        graphics_pipeline: *const GraphicsPipeline,
+        surface: c.VkSurfaceKHR,
+        format: c.VkSurfaceFormatKHR,
+        render_pass: c.VkRenderPass,
         size: Size,
         allocator: Allocator,
     ) !Swapchain {
@@ -49,39 +57,35 @@ pub const Swapchain = struct {
 
         try check(device.dispatch.vkCreateSemaphore(device.handle, &semaphore_info, null, &swapchain.render_finished));
         try check(device.dispatch.vkCreateFence(device.handle, &fence_info, null, &swapchain.in_flight));
-        try check(instance.dispatch.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physical_device.handle, instance.surface, &swapchain.capabilities));
 
-        swapchain.image_count = if (swapchain.capabilities.maxImageCount > 0) @min(swapchain.capabilities.minImageCount + 1, swapchain.capabilities.maxImageCount)
-        else swapchain.capabilities.minImageCount + 1;
+        swapchain.device = device;
+        const capabilities = device.physical_device.capabilities;
+        swapchain.image_count = if (capabilities.maxImageCount > 0) @min(capabilities.minImageCount + 1, capabilities.maxImageCount)
+        else capabilities.minImageCount + 1;
+
+        swapchain.render_pass = render_pass;
+        swapchain.surface = surface;
+        swapchain.size = size;
+        swapchain.format = format;
 
         swapchain.images = try allocator.alloc(c.VkImage, swapchain.image_count);
         swapchain.image_views = try allocator.alloc(c.VkImageView, swapchain.image_count);
         swapchain.framebuffers = try allocator.alloc(c.VkFramebuffer, swapchain.image_count);
         swapchain.allocator = allocator;
 
-        try swapchain.recreate(
-            instance,
-            device,
-            graphics_pipeline,
-            size,
-        );
+        try swapchain.recreate();
+        swapchain.valid = true;
 
         return swapchain;
     }
 
-    fn recreate(
-        self: *Swapchain,
-        instance: *const Instance,
-        device: *const Device,
-        graphics_pipeline: *const GraphicsPipeline,
-        size: Size,
-    ) !void {
-        self.extent = c.VkExtent2D {
-            .width = size.x,
-            .height = size.y,
-        };
-
+    fn recreate(self: *Swapchain) !void {
+        const device = self.device;
         const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
+        const extent = c.VkExtent2D {
+            .width = self.size.x,
+            .height = self.size.y,
+        };
 
         var unique_families: [4]u32 = undefined;
         var family_count: u32 = 0;
@@ -100,14 +104,14 @@ pub const Swapchain = struct {
 
         const info = c.VkSwapchainCreateInfoKHR {
             .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-            .surface = instance.surface,
+            .surface = self.surface,
             .minImageCount = self.image_count,
-            .imageFormat = graphics_pipeline.format.format,
-            .imageColorSpace = graphics_pipeline.format.colorSpace,
-            .imageExtent = self.extent,
+            .imageFormat = self.format.format,
+            .imageColorSpace = self.format.colorSpace,
+            .imageExtent = extent,
             .imageSharingMode = if (family_count > 1) c.VK_SHARING_MODE_CONCURRENT else c.VK_SHARING_MODE_EXCLUSIVE,
             .presentMode = present_mode,
-            .preTransform = self.capabilities.currentTransform,
+            .preTransform = device.physical_device.capabilities.currentTransform,
             .clipped = c.VK_TRUE,
             .imageArrayLayers = 1,
             .compositeAlpha = c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
@@ -131,15 +135,15 @@ pub const Swapchain = struct {
         }
 
         for (0..self.image_count) |i| {
-            self.image_views[i] = try Image.view_init(self.images[i], graphics_pipeline.format.format, device);
+            self.image_views[i] = try Image.view_init(self.images[i], self.format.format, device);
 
             const framebuffer_info = c.VkFramebufferCreateInfo {
                 .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                .renderPass = graphics_pipeline.render_pass,
+                .renderPass = self.render_pass,
                 .attachmentCount = 1,
                 .pAttachments = &self.image_views[i],
-                .width = self.extent.width,
-                .height = self.extent.height,
+                .width = self.size.x,
+                .height = self.size.y,
                 .layers = 1,
             };
 
@@ -151,6 +155,39 @@ pub const Swapchain = struct {
         };
 
         try check(device.dispatch.vkCreateSemaphore(device.handle, &semaphore_info, null, &self.image_available));
+    }
+
+    pub fn wait(self: *const Swapchain) !void {
+        try check(self.device.dispatch.vkWaitForFences(self.device.handle, 1, &self.in_flight, c.VK_TRUE, 0xFFFFFF));
+        try check(self.device.dispatch.vkQueueWaitIdle(self.device.queues[0]));
+    }
+
+    pub fn image_index(self: *Swapchain) !u32 {
+        try self.wait();
+
+        var index: u32 = 0;
+        var result = self.device.dispatch.vkAcquireNextImageKHR(self.device.handle, self.handle, 0xFFFFFF, self.image_available, null, &index);
+
+        while (result == c.VK_ERROR_OUT_OF_DATE_KHR or result == c.VK_SUBOPTIMAL_KHR) {
+            try self.recreate();
+            result = self.device.dispatch.vkAcquireNextImageKHR(self.device.handle, self.handle, 0xFFFFFF, self.image_available, null, &index);
+        }
+
+        try check(result);
+        return index;
+    }
+
+    fn resize(ptr: *anyopaque, size: *const Size) void {
+        const self: *Swapchain = @ptrCast(@alignCast(ptr));
+
+        self.size.move(size);
+    }
+
+    pub fn resize_listener(self: *Swapchain) ResizeListener {
+        return ResizeListener {
+            .f = resize,
+            .ptr = self,
+        };
     }
 
     pub fn deinit(self: *const Swapchain, device: *const Device) void {

@@ -15,53 +15,33 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const font = try TrueType.init(25, "assets/font/font.ttf", allocator);
-    const window = try Window(Wayland).init(1920, 1080, allocator);
+    const window = try Window(Wayland).init(1920, 1080, font.scale, font.ratio, allocator);
     const instance = try Instance.init(Wayland, &window.handle);
     const device = try Device.init(&instance);
     const graphics_pipeline = try GraphicsPipeline.init(&instance, &device);
-    const swapchain = try Swapchain.init(&instance, &device, &graphics_pipeline, window.size, allocator);
+    var swapchain = try Swapchain.init(&device, instance.surface, graphics_pipeline.format, graphics_pipeline.render_pass, window.size, allocator);
     const command_pool = try CommandPool.init(&device, &swapchain, allocator);
-    const painter = try Painter.init(&device, &graphics_pipeline, &command_pool, &font, window.scale, allocator);
+    var painter = try Painter.init(&swapchain, &graphics_pipeline, &command_pool, &font, window.size, allocator);
+
+    window.add_painter(&painter);
+    try window.add_listener(painter.resize_listener());
+    try window.add_listener(swapchain.resize_listener());
+    try window.update();
+
+    while (window.state != .Closing) {
+        try window.update();
+        window.handle.get_events();
+
+        std.time.sleep(1000000 * 20);
+        try swapchain.wait();
+    }
 
     font.deinit();
-    painter.deinit(&device);
+    painter.deinit();
     command_pool.deinit(&device);
     swapchain.deinit(&device);
     graphics_pipeline.deinit(&device);
     device.deinit();
     instance.deinit();
     window.deinit();
-
-    // const window = try wayland.init(1920, 1080, font.scale, font.x_ratio, allocator);
-
-
-    // while (window.running) {
-    //   vulkan.sync(&device, &swapchain);
-
-    //   if (window.update) {
-    //     vulkan.draw_frame(
-    //       &swapchain,
-    //       &instance,
-    //       &device,
-    //       &command_pool,
-    //       &graphics_pipeline,
-    //       window,
-    //       &painter
-    //     );
-
-    //     wayland.update_surface(window);
-    //   }
-
-    //   wayland.get_events(window);
-    // }
-
-    // vulkan.painter_deinit(&device, &painter);
-    // vulkan.command_pool_deinit(&device, &command_pool);
-    // vulkan.swapchain_deinit(&device, &swapchain);
-    // vulkan.graphics_pipeline_deinit(&device, &graphics_pipeline);
-    // vulkan.device_deinit(&device);
-    // vulkan.instance_deinit(&instance);
-
-    // true_type.deinit(&font);
-    // wayland.deinit(window);
 }

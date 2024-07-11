@@ -1,11 +1,12 @@
 const c = @import("../bind.zig").c;
 const std = @import("std");
 const check = @import("result.zig").check;
+const math = @import("../math.zig");
 
 const CHAR_COUNT: u32 = 95;
 
 const Device = @import("device.zig").Device;
-const Allocator = std.mem.Allocator;
+const Swapchain = @import("swapchain.zig").Swapchain;
 const Buffer = @import("buffer.zig").Buffer;
 const Uniform = @import("buffer.zig").Uniform;
 const Vec = @import("buffer.zig").Vec;
@@ -14,9 +15,18 @@ const GraphicsPipeline = @import("graphics_pipeline.zig").GraphicsPipeline;
 const CommandPool = @import("command_pool.zig").CommandPool;
 const Font = @import("../truetype.zig").TrueType;
 
+const WindowBuffer = @import("../window/buffer.zig").Buffer;
+const ResizeListener = @import("../window/core.zig").ResizeListener;
+
+const Allocator = std.mem.Allocator;
+
 const Size = @import("../math.zig").Vec2D;
 
 pub const Painter = struct {
+    swapchain: *Swapchain,
+    graphics_pipeline: *const GraphicsPipeline,
+    command_pool: *const CommandPool,
+
     index: Buffer,
     uniform: Uniform,
 
@@ -29,16 +39,23 @@ pub const Painter = struct {
     allocator: Allocator,
 
     pub fn init(
-        device: *const Device,
+        swapchain: *Swapchain,
         graphics_pipeline: *const GraphicsPipeline,
         command_pool: *const CommandPool,
         font: *const Font,
-        scale: f32,
+        size: Size,
         allocator: Allocator,
     ) !Painter {
         var painter: Painter = undefined;
+        const device = swapchain.device;
 
-        const uniform_data = [_]f32 { scale, font.scale, font.x_ratio };
+        painter.graphics_pipeline = graphics_pipeline;
+        painter.command_pool = command_pool;
+        painter.swapchain = swapchain;
+
+        const scale = math.divide(size.y, size.x);
+
+        const uniform_data = [_]f32 { scale, font.scale, font.ratio };
         painter.uniform = try Uniform.init(
             f32,
             &uniform_data,
@@ -131,131 +148,184 @@ pub const Painter = struct {
         return painter;
     }
 
-    fn update(
-        self: *Painter,
-        lines: ?[]const []const u8,
-        general_elements: ?[]const [2]u32,
-        device: *const Device
-    ) !void {
-        if (lines) |l| {
-            for (l, 0..) |line, i| {
-                for (line, 0..) |char, j| {
-                    const code = char - 32;
-                    if (code == 0) continue;
+    fn on_char(self: *Painter, char: u8, col: usize, row: usize) !void {
+        const code = char - 32;
+        if (code == 0) return;
 
-                    const row: u32 = @intCast(i);
-                    const col: u32 = @intCast(j);
+        const j: u32 = @intCast(col);
+        const i: u32 = @intCast(row);
 
-                    try self.vertices[code + 1].push(
-                        .{ row, col, 255, 255, 255 },
-                        device,
-                    );
-                }
+        try self.vertices[code + 1].push(
+            .{ j, i, 255, 255, 255 },
+            self.swapchain.device,
+        );
+    }
+
+    fn on_back(self: *Painter, col: usize, row: usize) !void {
+        const j: u32 = @intCast(col);
+        const i: u32 = @intCast(row);
+
+        try self.vertices[0].push(
+            .{ j, i, 255, 255, 255 },
+            self.swapchain.device,
+        );
+    }
+
+    pub fn update(self: *Painter, buffer: *const WindowBuffer) !void {
+        for (self.vertices) |*v| {
+            v.reset();
+        }
+
+        try buffer.char_iter(Painter, self, on_char);
+        try buffer.back_iter(Painter, self, on_back);
+    }
+
+    pub fn draw(self: *const Painter) !void {
+        if (!self.swapchain.valid) return error.InvalidSwapchain;
+
+        const start = try std.time.Instant.now();
+        const index = try self.swapchain.image_index();
+        const device = self.swapchain.device;
+
+        try self.record_draw(index);
+        try check(device.dispatch.vkResetFences(device.handle, 1, &self.swapchain.in_flight));
+
+        const wait_dst_stage: u32 = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        const submit_info = c.VkSubmitInfo {
+            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &self.swapchain.image_available,
+            .pWaitDstStageMask = &wait_dst_stage,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &self.command_pool.buffers[index],
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &self.swapchain.render_finished,
+        };
+
+        try check(device.dispatch.vkQueueSubmit(device.queues[0], 1, &submit_info, self.swapchain.in_flight));
+
+        const present_info = c.VkPresentInfoKHR {
+            .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .swapchainCount = 1,
+            .pSwapchains = &self.swapchain.handle,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &self.swapchain.render_finished,
+            .pImageIndices = &index,
+        };
+
+        try check(device.dispatch.vkQueuePresentKHR(device.queues[1], &present_info));
+
+        const end = try std.time.Instant.now();
+        std.debug.print("time for draw frame: {} ns\n", .{end.since(start)});
+    }
+
+    fn record_draw(self: *const Painter, index: u32) !void {
+        const command_buffer = self.command_pool.buffers[index];
+        const framebuffer = self.swapchain.framebuffers[index];
+        const device = self.swapchain.device;
+
+        const size = self.swapchain.size;
+
+        const begin_info = c.VkCommandBufferBeginInfo {
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        };
+
+        const clear_value = c.VkClearValue {
+            .color = .{
+                .float32 = .{ 0.0, 0.0, 0.0, 1.0 },
+            },
+        };
+
+        const render_pass_info = c.VkRenderPassBeginInfo {
+            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = self.swapchain.render_pass,
+            .framebuffer = framebuffer,
+            .renderArea = c.VkRect2D {
+                .offset = c.VkOffset2D {
+                    .x = 0,
+                    .y = 0,
+                },
+                .extent = c.VkExtent2D {
+                    .width = size.x,
+                    .height = size.y,
+                },
+            },
+            .pClearValues = &clear_value,
+            .clearValueCount = 1,
+        };
+
+        const viewport = c.VkViewport {
+            .x = 0.0,
+            .y = 0.0,
+            .width = @floatFromInt(size.x),
+            .height = @floatFromInt(size.y),
+            .minDepth = 0.0,
+            .maxDepth = 1.0,
+        };
+
+        const scissor = c.VkRect2D {
+            .offset = c.VkOffset2D {
+                .x = 0,
+                .y = 0,
+            },
+            .extent = c.VkExtent2D {
+                .width = size.x,
+                .height = size.y,
+            },
+        };
+
+        try check(device.dispatch.vkBeginCommandBuffer(command_buffer, &begin_info));
+
+        device.dispatch.vkCmdBeginRenderPass(command_buffer, &render_pass_info, c.VK_SUBPASS_CONTENTS_INLINE);
+        device.dispatch.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+        device.dispatch.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+        device.dispatch.vkCmdBindPipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.handle);
+        device.dispatch.vkCmdBindIndexBuffer(command_buffer, self.index.handle, 0, c.VK_INDEX_TYPE_UINT16);
+        device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 0, 1, &.{ self.uniform.set.handle }, 0, &0);
+
+        {
+            const vertex_offsets = &[_]u64 { 0, 0 };
+            const vertex_buffers = &[_]c.VkBuffer { self.coords.handle, self.vertices[0].buffer.handle };
+
+            device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 1, 1, &.{ self.general_texture.set.handle }, 0, &0);
+            device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, vertex_buffers.len, &vertex_buffers[0], &vertex_offsets[0]);
+            device.dispatch.vkCmdDrawIndexed(command_buffer, 6, self.vertices[0].len(), 0, 0, 0);
+        }
+
+        {
+            device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 1, 1, &.{ self.font_atlas.set.handle }, 0, &0);
+
+            for (0..CHAR_COUNT) |i| {
+                const len = self.vertices[i + 1].len();
+                if (len == 0) continue;
+
+                const vertex_offsets = &[_]u64 { @sizeOf(f32) * 4 * 2 * (i + 1), 0 };
+                const vertex_buffers = &[_]c.VkBuffer { self.coords.handle, self.vertices[i + 1].buffer.handle };
+
+                device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, vertex_buffers.len, &vertex_buffers[0], &vertex_offsets[0]);
+                device.dispatch.vkCmdDrawIndexed(command_buffer, 6, len, 0, 0, 0);
             }
         }
 
-        if (general_elements) |g| {
-            for (g) |e| {
-                try self.vertices[0].push(
-                    .{ e[0], e[1], 255, 255, 255 },
-                    device
-                );
-            }
-        }
+        device.dispatch.vkCmdEndRenderPass(command_buffer);
+        try check(device.dispatch.vkEndCommandBuffer(command_buffer));
+    }
 
-        // painter.general_elements.dst.len = 1;
-        // const offset = wayland.get_offset(window);
+    fn resize(ptr: *anyopaque, size: *const Size) void {
+        const self: *Painter = @ptrCast(@alignCast(ptr));
 
-        // if (wayland.is_selection_active(window)) {
-        //     const lines = wayland.get_selected_lines(window);
-        //     const selection_boundary = wayland.get_selection_boundary(window);
+        self.uniform.dst[0] = math.divide(size.y, size.x);
+    }
 
-        //     const len = selection_boundary[1].y + 1 - selection_boundary[0].y;
-        //     const cols = window.cols - 1;
-        //     const position_count: u32 = len * cols;
+    pub fn resize_listener(self: *Painter) ResizeListener {
+        return ResizeListener {
+            .f = resize,
+            .ptr = self,
+        };
+    }
 
-        //     if (painter.general_elements.capacity <= position_count + 1) {
-        //         try check(device.vkUnmapMemory(device.handle, painter.general_elements.positions.memory));
-        //         buffer_deinit(device, &painter.general_elements.positions);
-
-        //         painter.general_elements.positions = buffer_init(
-        //             [5]u32,
-        //             device,
-        //             c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        //             c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        //             position_count,
-        //         );
-
-        //         painter.general_elements.capacity = position_count;
-        //         try check(device.vkMapMemory(device.handle, painter.general_elements.positions.memory, 0, (1 + position_count) * @sizeOf([2]u32), 0, @ptrCast(&painter.general_elements.dst)));
-        //     }
-
-        //     var index: u32 = 1;
-        //     for (0..len) |i| {
-        //         const boundary: [2]u32 = condition: {
-        //             if (i == 0) {
-        //                 break :condition .{
-        //                     math.max(offset[0], selection_boundary[0].x),
-        //                     if (len == 1) selection_boundary[1].x else lines[selection_boundary[0].y].char_count,
-        //                 };
-        //             }
-        //             if (i == len - 1) break :condition .{ math.max(0, offset[0]), selection_boundary[1].x };
-        //             break :condition .{ math.max(0, offset[0]), lines[selection_boundary[0].y + i].char_count };
-        //         };
-
-        //         const diff = boundary[1] - boundary[0] + 1;
-        //         painter.general_elements.dst.len += diff;
-
-        //         const ii: u32 = @intCast(i);
-        //         for (boundary[0]..boundary[1] + 1) |j| {
-        //             const jj: u32 = @intCast(j);
-        //             painter.general_elements.dst[index] = .{
-        //                 jj - offset[0], ii + selection_boundary[0].y - offset[1],
-        //                 0, 255, 255
-        //             };
-
-        //             index += 1;
-        //         }
-        //     }
-        }
-
-    //     const cursor_data = wayland.get_cursor_position(window);
-    //     painter.general_elements.dst[0] = .{
-    //         cursor_data[0] - offset[0], cursor_data[1] - offset[1],
-    //         255, 255, 255
-    //     };
-    // }
-
-    // fn update_painter(device: *const Device, painter: *Painter) void {
-    //     for (0..CHAR_COUNT) |i| {
-    //         const data = wayland.get_char_data(window, i);
-    //         const len: u32 = @intCast(data.pos.len);
-    //         painter.chars[i].dst.len = len;
-
-    //         if (len == 0) continue;
-    //         if (painter.chars[i].capacity < len) {
-    //             try check(device.vkUnmapMemory(device.handle, painter.chars[i].positions.memory));
-    //             buffer_deinit(device, &painter.chars[i].positions);
-
-    //             painter.chars[i].positions = buffer_init(
-    //                 [5]u32,
-    //                 device,
-    //                 c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-    //                 c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-    //                 len,
-    //             );
-
-    //             painter.chars[i].capacity = len;
-    //             try check(device.vkMapMemory(device.handle, painter.chars[i].positions.memory, 0, len * @sizeOf([5]u32), 0, @ptrCast(&painter.chars[i].dst)));
-    //         }
-
-    //         for (0..len) |k| {
-    //             painter.chars[i].dst[k] = data.pos[k];
-    //         }
-    //     }
-    // }
-
-    pub fn deinit(self: *const Painter, device: *const Device) void {
+    pub fn deinit(self: *const Painter) void {
+        const device = self.swapchain.device;
         self.font_atlas.deinit(device);
         self.general_texture.deinit(device);
 

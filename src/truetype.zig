@@ -141,7 +141,7 @@ pub const TrueType = struct {
     glyph_count: u32,
 
     scale: f32,
-    x_ratio: f32,
+    ratio: f32,
     glyph_size: Size,
 
     pub fn init(size: u32, path: []const u8, allocator: Allocator) !TrueType {
@@ -174,7 +174,7 @@ pub const TrueType = struct {
             .bitmap = bitmap,
             .glyph_count = GLYPH_COUNT,
             .glyph_size = face.glyph_size,
-            .x_ratio = math.divide(face.glyph_size.x, face.glyph_size.y),
+            .ratio = math.divide(face.glyph_size.x, face.glyph_size.y),
             .scale = math.divide(face.glyph_size.y, face.em),
         };
     }

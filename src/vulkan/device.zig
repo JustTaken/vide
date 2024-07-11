@@ -293,6 +293,7 @@ const PhysicalDevice = struct {
     valuation: u32,
     features: c.VkPhysicalDeviceFeatures,
     memory_properties: c.VkPhysicalDeviceMemoryProperties,
+    capabilities: c.VkSurfaceCapabilitiesKHR,
 
     fn init(
         instance: *const Instance,
@@ -371,8 +372,10 @@ const PhysicalDevice = struct {
         };
 
         var memory_properties: c.VkPhysicalDeviceMemoryProperties = undefined;
+        var capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
         {
             instance.dispatch.vkGetPhysicalDeviceMemoryProperties(handle, &memory_properties);
+            try check(instance.dispatch.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(handle, instance.surface, &capabilities));
         }
 
         return PhysicalDevice {
@@ -381,6 +384,7 @@ const PhysicalDevice = struct {
             .valuation = valuation,
             .features = features,
             .memory_properties = memory_properties,
+            .capabilities = capabilities,
         };
     }
 

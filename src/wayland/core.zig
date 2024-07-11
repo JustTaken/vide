@@ -4,7 +4,7 @@ const c = @import("../bind.zig").c;
 const math = @import("../math.zig");
 // const buffer = @import("buffer.zig");
 // const mode_line = @import("mode_line.zig");
-// const util = @import("../util.zig");
+const util = @import("../util.zig");
 // const command = @import("command.zig");
 // const highlight = @import("highlight.zig");
 const Window = @import("../window/core.zig").Core(Wayland);
@@ -32,6 +32,9 @@ pub const Wayland = struct {
     xdg_toplevel_listener: c.xdg_toplevel_listener,
     seat_listener: c.wl_seat_listener,
     keyboard_listener: c.wl_keyboard_listener,
+    control: bool,
+    alt: bool,
+    shift: bool,
 
     pub fn init(
         window: *Window,
@@ -109,7 +112,6 @@ pub const Wayland = struct {
 
     pub fn update_surface(self: *const Wayland) void {
         c.wl_surface_commit(self.surface);
-        // core.update = false;
     }
 
     pub fn get_events(self: *const Wayland) void {
@@ -325,27 +327,6 @@ pub const Wayland = struct {
 //     core.update = true;
 // }
 
-// fn build_key_string(string: []u8, control: bool, alt: bool, char: u8) u32 {
-//     var len: u32 = 0;
-
-//     if (control) {
-//         string[0] = 'C';
-//         string[1] = '-';
-//         len += 2;
-//     }
-
-//     if (alt) {
-//         string[len] = 'A';
-//         string[len + 1] = '-';
-//         len += 2;
-//     }
-
-//     string[len] = char;
-
-//     len += 1;
-
-//     return len;
-// }
 
 // pub fn key_pressed(core: *Core, key: u32) !void {
 //     const start = try Instant.now();
@@ -445,6 +426,29 @@ pub const Wayland = struct {
 //     core.last_fetch_delay = try Instant.now();
 //     std.debug.print("time elapsed: {} ns\n", .{core.last_fetch_delay.since(start)});
 // }
+
+fn build_key_string(string: []u8, control: bool, alt: bool, char: u8) u32 {
+    var len: u32 = 0;
+
+    if (control) {
+        string[0] = 'C';
+        string[1] = '-';
+        len += 2;
+    }
+
+    if (alt) {
+        string[len] = 'A';
+        string[len + 1] = '-';
+        len += 2;
+    }
+
+    string[len] = char;
+
+    len += 1;
+
+    return len;
+}
+
 pub fn global_remove_listener(_: ?*anyopaque, _: ?*c.wl_registry, _: u32) callconv(.C) void {}
 pub fn global_listener(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, interface: [*c]const u8, _: u32) callconv(.C) void {
     const window: *Window = @ptrCast(@alignCast(data));
@@ -484,10 +488,13 @@ pub fn shell_surface_configure(_: ?*anyopaque, shell_surface: ?*c.xdg_surface, s
 
 pub fn toplevel_configure(data: ?*anyopaque, _: ?*c.xdg_toplevel, width: i32, height: i32, _: ?*c.wl_array) callconv(.C) void {
     const window: *Window = @ptrCast(@alignCast(data));
-    _ = window;
-    _ = width;
-    _ = height;
-    
+
+    if (width > 0 and height > 0) {
+        const w: u32 = @intCast(width);
+        const h: u32 = @intCast(height);
+
+        window.resize(w, h);
+    }
 
     // if (width > 0 and height > 0) {
     //     if (width == core.width and height == core.height) return;
@@ -506,7 +513,7 @@ pub fn toplevel_configure(data: ?*anyopaque, _: ?*c.xdg_toplevel, width: i32, he
 
 pub fn toplevel_close(data: ?*anyopaque, _: ?*c.xdg_toplevel) callconv(.C) void {
     const window: *Window = @ptrCast(@alignCast(data));
-    window.running = false;
+    window.state = .Closing;
 }
 
 pub fn keyboard_keymap(_: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, _: i32, _: u32) callconv(.C) void {}
@@ -514,14 +521,20 @@ pub fn keyboard_enter(_: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, _: ?*c.wl_surf
 pub fn keyboard_leave(_: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, _: ?*c.wl_surface) callconv(.C) void {}
 pub fn keyboard_key(data: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, _: u32, id: u32, state: u32) callconv(.C) void {
     const window: *Window = @ptrCast(@alignCast(data));
-    _ = window;
-    _ = id;
-    _ = state;
 
-    // core.command_handler.reset();
-    // if (state == 1) wayland.key_pressed(core, id) catch |e| {
-        // std.debug.print("{}\n", .{e});
-    // };
+    if (state != 1) {
+        window.key_up();
+        return;
+    }
+
+    const core = &window.handle;
+    const tuple = ascci(id) catch return;
+    const char = if (core.shift) tuple[1] else tuple[0];
+
+    var key_string: [5]u8 = undefined;
+    const key_string_len = build_key_string(&key_string, core.control, core.alt, char);
+
+    window.key_input(key_string[0..key_string_len]) catch return;
 }
 
 const SHIFT_BIT: u32 = 0x01;
@@ -531,14 +544,12 @@ const ALT_BIT: u32 = 0x08;
 
 pub fn keyboard_modifiers(data: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, depressed: u32, _: u32, locked: u32, _: u32) callconv(.C) void {
     const window: *Window = @ptrCast(@alignCast(data));
-    _ = window;
-    _ = depressed;
-    _ = locked;
-    // const pressed = depressed | locked;
+    const core = &window.handle;
+    const pressed = depressed | locked;
 
-    // window.control = pressed & CONTROL_BIT > 0;
-    // window.shift = pressed & (SHIFT_BIT | CAPSLOCK_BIT) > 0;
-    // window.alt = pressed & ALT_BIT > 0;
+    core.control = pressed & CONTROL_BIT > 0;
+    core.shift = pressed & (SHIFT_BIT | CAPSLOCK_BIT) > 0;
+    core.alt = pressed & ALT_BIT > 0;
 }
 
 pub fn keyboard_repeat_info(data: ?*anyopaque, _: ?*c.wl_keyboard, rate: i32, delay: i32) callconv(.C) void {

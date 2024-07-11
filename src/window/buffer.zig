@@ -1,14 +1,14 @@
 const std = @import("std");
+const math = @import("../math.zig");
 
 const Allocator = std.mem.Allocator;
 
 const Highlight = @import("highlight.zig").Highlight;
 const Vec = @import("../collections.zig").Vec;
-const Vec2D = @import("../math.zig").Vec2D;
-const Rect = @import("../math.zig").Rect;
 
-const Coord = Vec2D;
-const Length = Vec2D;
+const Rect = math.Rect;
+const Coord = math.Vec2D;
+const Length = math.Vec2D;
 
 const Line = struct {
     content: Vec(u8),
@@ -18,13 +18,18 @@ const Line = struct {
     const CHAR_COUNT: u32 = 50;
 
     fn init(content: []const u8, allocator: Allocator) !Line {
-        var indent = 0;
-        if (content.len > 0) {
+        const len: u32 = @intCast(content.len);
+
+        var indent: u32 = 0;
+        var vec = try Vec(u8).init(math.max(len, CHAR_COUNT), allocator);
+
+        if (len > 0) {
             while (content[indent] == ' ') : (indent += 1) {}
+            try vec.extend(content);
         }
 
         return Line {
-            .content = try Vec(u8).init(allocator, CHAR_COUNT),
+            .content = vec,
             .indent = indent,
         };
     }
@@ -81,14 +86,15 @@ pub const Buffer = struct {
         size: Length,
         allocator: Allocator
     ) !Buffer {
-        var lines = try Vec(Line).init((content.len + Line.CHAR_COUNT) / Line.CHAR_COUNT, allocator);
+        const len: u32 = @intCast(content.len);
+        var lines = try Vec(Line).init((len + Line.CHAR_COUNT) / Line.CHAR_COUNT, allocator);
 
         {
-            var line_start: u32 = 0;
-            for (0..content.len) |i| {
+            var line_start: usize = 0;
+            for (0..len) |i| {
                 if (content[i] == '\n') {
-                    lines.push(
-                        Line.init(content[line_start..i], allocator)
+                    try lines.push(
+                        try Line.init(content[line_start..i], allocator)
                     );
 
                     line_start = i + 1;
@@ -97,8 +103,8 @@ pub const Buffer = struct {
         }
 
         {
-            if (content.len == 0) {
-                try lines.push("", allocator);
+            if (len == 0) {
+                try lines.push(try Line.init("", allocator));
             }
         }
 
@@ -112,12 +118,35 @@ pub const Buffer = struct {
             .rect = Rect.init(Coord.init(0, 0), size),
             .cursor = cursor,
             .selection = selection,
+            .highlight = undefined,
         };
+    }
+
+    pub fn char_iter(self: *const Buffer, T: type, ptr: *T, f: fn (*T, u8, usize, usize) anyerror!void) !void {
+        const end = self.rect.end();
+        const lines = self.lines.range(self.rect.coord.y, end.y) catch return;
+
+        for (lines, 0..) |line, i| {
+            const chars = line.content.range(self.rect.coord.x, end.x) catch continue;
+
+            for (chars, 0..) |char, j| {
+                try f(ptr, char, j, i);
+            }
+        }
+    }
+
+    pub fn back_iter(self: *const Buffer, T: type, ptr: *T, f: fn (*T, usize, usize) anyerror!void) !void {
+        const coord = self.cursor.coord.sub(&self.rect.coord);
+        try f(ptr, coord.x, coord.y);
     }
 
     pub fn move_cursor(self: *Buffer, to: *const Cursor) void {
         self.cursor.move(to);
         self.selection.move(to);
+    }
+
+    pub fn set_size(self: *Buffer, size: *const Length) void {
+        self.rect.size.move(size);
     }
 
     pub fn deinit(self: *const Buffer) void {

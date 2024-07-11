@@ -9,9 +9,20 @@ pub const Vec2D = struct {
         };
     }
 
+    pub fn eql(self: *const Vec2D, other: *const Vec2D) bool {
+        return self.x == other.x and self.y == other.y;
+    }
+
     pub fn move(self: *Vec2D, to: *const Vec2D) void {
         self.x = to.x;
         self.y = to.y;
+    }
+
+    pub fn sub(self: *const Vec2D, other: *const Vec2D) Vec2D {
+        return Vec2D {
+            .x = self.x - other.x,
+            .y = self.y - other.y,
+        };
     }
 };
 
@@ -19,18 +30,22 @@ pub const Rect = struct {
     coord: Vec2D,
     size: Vec2D,
 
-    fn init(coord: Vec2D, size: Vec2D) Rect {
+    pub fn init(coord: Vec2D, size: Vec2D) Rect {
         return Rect {
             .coord = coord,
             .size = size,
         };
     }
 
-    fn contains(self: *const Rect, coord: Vec2D) bool {
+    pub fn contains(self: *const Rect, coord: Vec2D) bool {
         const contain_x = self.coord.x <= coord.x and self.coord.x + self.size.x >= coord.x;
         const contain_y = self.coord.y <= coord.y and self.coord.y + self.size.y >= coord.y;
 
         return contain_x and contain_y;
+    }
+
+    pub fn end(self: *const Rect) Vec2D {
+        return Vec2D.init(self.coord.x + self.size.x, self.coord.y + self.size.y);
     }
 };
 

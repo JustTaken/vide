@@ -17,9 +17,9 @@ pub fn Vec(T: type) type {
         const Self = @This();
 
         pub fn init(capacity: u32, allocator: Allocator) Error!Self {
+            var items: []T = undefined;
             const memory = allocator.alloc(T, capacity) catch return Error.AllocationFail;
 
-            var items: []T = undefined;
             items.len = 0;
             items.ptr = memory.ptr;
 
@@ -31,23 +31,23 @@ pub fn Vec(T: type) type {
         }
 
         pub fn push(self: *Self, item: T) Error!void {
-            const len: u32 = @intCast(self.items.len);
+            const count: u32 = self.len();
 
-            if (self.capacity <= len) try self.resize(len * 2);
+            if (self.capacity <= count) try self.resize(count * 2);
 
             self.items.len += 1;
-            self.items[len] = item;
+            self.items[count] = item;
         }
 
         fn resize(self: *Self, capacity: u32) Error!void {
             const new = self.allocator.alloc(T, capacity) catch return Error.AllocationFail;
-            const len = self.items.len;
+            const count = self.len();
 
             copy(T, self.items, new);
             self.allocator.free(self.items.ptr[0..self.capacity]);
 
             self.items.ptr = new.ptr;
-            self.items.len = len;
+            self.items.len = count;
             self.capacity = capacity;
         }
 
@@ -61,12 +61,13 @@ pub fn Vec(T: type) type {
         }
 
         pub fn insert(self: *Self, item: T, index: u32) Error!void {
-            const len = self.items.len;
+            const count = self.len();
 
-            if (index > len) return Error.OutOfLength;
+            if (index > count) return Error.OutOfLength;
 
-            if (self.capacity <= len) {
-                const new = self.allocator.alloc(T, len * 2) catch return Error.AllocationFail;
+            if (self.capacity <= count) {
+                const new_len = count * 2;
+                const new = self.allocator.alloc(T, new_len) catch return Error.AllocationFail;
 
                 copy(T, self.items[0..index], new);
                 copy(T, self.items[index..], new[index + 1..]);
@@ -74,13 +75,13 @@ pub fn Vec(T: type) type {
                 self.allocator.free(self.items.ptr[0..self.capacity]);
 
                 self.items.ptr = new.ptr;
-                self.items.len = len + 1;
+                self.items.len = count + 1;
 
-                self.capacity = @intCast(new.len);
+                self.capacity = new_len;
             } else {
                 self.items.len += 1;
 
-                for (index..len) |i| {
+                for (index..count) |i| {
                     self.items[i + 1] = self.items[i];
                 }
             }
@@ -88,8 +89,20 @@ pub fn Vec(T: type) type {
             self.items[index] = item;
         }
 
-        pub fn get(self: *const Self) !*const T {
-            return self.elements.get(self.index) catch unreachable;
+        pub fn range(self: *const Self, start: u32, end: u32) ![]const T {
+            var e = end + 1;
+
+            if (start > end) return Error.OutOfLength;
+            if (start >= self.items.len) return Error.OutOfLength;
+            if (e > self.items.len) e = self.len();
+
+            return self.items[start..e];
+        }
+
+        pub fn get(self: *const Self, index: u32) !*const T {
+            if (index >= self.items.len) return Error.OutOfLength;
+
+            return &self.items[index];
         }
 
         pub fn get_mut(self: *Self, index: u32) !*T {
@@ -102,6 +115,10 @@ pub fn Vec(T: type) type {
             if (self.items.len == 0) return Error.OutOfLength;
 
             return &self.items[self.items.len - 1];
+        }
+
+        pub fn len(self: *const Self) u32 {
+            return @intCast(self.items.len);
         }
 
         pub fn iter(self: *const Self) Iter(T) {
@@ -132,7 +149,11 @@ pub fn Cursor(T: type) type {
             };
         }
 
-        pub fn get(self: *Self) *T {
+        pub fn get(self: *const Self) *const T {
+            return self.elements.get(self.index) catch unreachable;
+        }
+
+        pub fn get_mut(self: *Self) *T {
             return self.elements.get_mut(self.index) catch unreachable;
         }
 
@@ -174,6 +195,33 @@ pub fn Iter(T: type) type {
 
         pub fn reset(self: *Self) void {
             self.next = 0;
+        }
+    };
+}
+
+pub fn FixedVec(T: type, L: u32) type {
+    return struct {
+        elements: [L]T,
+        len: u32,
+
+        const Self = @This();
+
+        pub fn init() Self {
+            return Self {
+                .elements = undefined,
+                .len = 0,
+            };
+        }
+
+        pub fn push(self: *Self, item: T) error { OutOfLength }!void {
+            if (self.elements.len <= self.len) return error.OutOfLength;
+
+            self.elements[self.len] = item;
+            self.len += 1;
+        }
+
+        pub fn items(self: *Self) []T {
+            return self.elements[0..self.len];
         }
     };
 }
@@ -244,5 +292,4 @@ test "take iter" {
     if (result) |r| {
         try expect(r.* == 60);
     }
-
 }
