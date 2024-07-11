@@ -1,7 +1,8 @@
 const c = @import("../bind.zig").c;
 
+const check = @import("result.zig").check;
+
 pub const Dispatch = struct {
-    // vkCreateInstance: *const fn (?*const c.VkInstanceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkInstance) callconv(.C) i32,
     vkCreateDevice: *const fn (c.VkPhysicalDevice, *const c.VkDeviceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkDevice) callconv(.C) i32,
     vkEnumeratePhysicalDevices: *const fn (c.VkInstance, *u32, ?[*]c.VkPhysicalDevice) callconv(.C) i32,
     vkEnumerateDeviceExtensionProperties: *const fn (c.VkPhysicalDevice, ?[*]const u8, *u32, ?[*]c.VkExtensionProperties) callconv(.C) i32,
@@ -15,7 +16,6 @@ pub const Dispatch = struct {
     vkGetPhysicalDeviceMemoryProperties: *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void,
     vkGetPhysicalDeviceFormatProperties: *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void,
     vkDestroySurfaceKHR: *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-    // vkCreateWaylandSurfaceKHR: *const fn (c.VkInstance, *const c.VkWaylandSurfaceCreateInfoKHR, ?*const c.VkAllocationCallbacks, *c.VkSurfaceKHR) callconv(.C) i32,
     vkDestroyInstance: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void,
     vkGetInstanceProcAddr: *const fn (c.VkInstance, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction,
 
@@ -75,8 +75,7 @@ pub const Instance = struct {
         };
 
         var instance: c.VkInstance = undefined;
-        const result = vkCreateInstance(&instance_create_info, null, &instance);
-        if (result != 0) return error.InstanceCreate;
+        try check(vkCreateInstance(&instance_create_info, null, &instance));
 
         const dispatch = try Dispatch.init(library, instance);
 
@@ -93,7 +92,6 @@ pub const Instance = struct {
         self.dispatch.vkDestroyInstance(self.handle, null);
 
         _ = c.dlclose(self.library);
-        // _ = ARENA.deinit();
     }
 };
 

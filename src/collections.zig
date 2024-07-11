@@ -80,12 +80,16 @@ pub fn Vec(T: type) type {
             } else {
                 self.items.len += 1;
 
-                for (index..self.items.len) |i| {
+                for (index..len) |i| {
                     self.items[i + 1] = self.items[i];
                 }
             }
 
             self.items[index] = item;
+        }
+
+        pub fn get(self: *const Self) !*const T {
+            return self.elements.get(self.index) catch unreachable;
         }
 
         pub fn get_mut(self: *Self, index: u32) !*T {
@@ -94,8 +98,14 @@ pub fn Vec(T: type) type {
             return &self.items[index];
         }
 
-        pub fn last_mut(self: *Self) *T {
+        pub fn last_mut(self: *Self) !*T {
+            if (self.items.len == 0) return Error.OutOfLength;
+
             return &self.items[self.items.len - 1];
+        }
+
+        pub fn iter(self: *const Self) Iter(T) {
+            return Iter(T).init(self);
         }
 
         pub fn deinit(self: *const Self) void {
@@ -123,7 +133,7 @@ pub fn Cursor(T: type) type {
         }
 
         pub fn get(self: *Self) *T {
-            return self.elements.get(self.index) catch unreachable;
+            return self.elements.get_mut(self.index) catch unreachable;
         }
 
         pub fn push(self: *Self, item: T) !void {
@@ -138,20 +148,28 @@ pub fn Cursor(T: type) type {
 
 pub fn Iter(T: type) type {
     return struct {
-        elements: Vec(T),
+        elements: *const Vec(T),
         next: u32,
 
         const Self = @This();
-        pub fn init(elements: Vec(T)) Self {
+        pub fn init(elements: *const Vec(T)) Self {
             return Self {
                 .elements = elements,
-                .last = 0,
+                .next = 0,
             };
         }
 
-        pub fn next(self: *Self) ?*T {
-            self.elements.get_mut(self.next) catch return null;
+        pub fn next(self: *Self) ?*const T {
+            self.elements.get(self.next) catch return null;
             self.next += 1;
+        }
+
+        pub fn take(self: *Self, f: fn (*const T) bool) ?*const T {
+            for (self.elements.items) |*e| {
+                if (f(e)) return e;
+            }
+
+            return null;
         }
 
         pub fn reset(self: *Self) void {
@@ -198,7 +216,7 @@ test "insert in vec should fail" {
     var vec = try Vec(u8).init(2, std.testing.allocator);
     defer vec.deinit();
 
-    try expect(vec.insert(10, 1) == .OutOfLength);
+    try expect(vec.insert(10, 1) == error.OutOfLength);
 }
 
 test "extend vec" {
@@ -208,4 +226,23 @@ test "extend vec" {
     try vec.extend(&.{ 10, 20, 30 });
     try expect(vec.items.len == 3);
     try expect(eql(u8, vec.items, &.{ 10, 20, 30 }));
+}
+
+fn p(e: *const u8) bool {
+    return e.* == 60;
+}
+
+test "take iter" {
+    var vec = try Vec(u8).init(2, std.testing.allocator);
+    defer vec.deinit();
+    try vec.extend(&.{ 0, 10, 20, 30, 42, 50, 60, 70, 80, 90, 100 });
+
+    var iter = vec.iter();
+
+    const result = iter.take(p);
+
+    if (result) |r| {
+        try expect(r.* == 60);
+    }
+
 }

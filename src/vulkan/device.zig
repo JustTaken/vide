@@ -2,9 +2,10 @@ const std = @import("std");
 
 const c = @import("../bind.zig").c;
 const Instance = @import("instance.zig").Instance;
+const check = @import("result.zig").check;
 
-var ARENA = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-const ALLOCATOR = ARENA.allocator();
+// var ARENA = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+// const ALLOCATOR = ARENA.allocator();
 
 pub const Dispatch = struct {
     vkGetDeviceQueue: *const fn (c.VkDevice, u32, u32, *c.VkQueue) callconv(.C) void,
@@ -162,16 +163,17 @@ pub const Device = struct {
     dispatch: Dispatch,
 
     pub fn init(instance: *const Instance) !Device {
+        var device: Device = undefined;
+
         var count: u32 = 0;
 
-        _ = instance.dispatch.vkEnumeratePhysicalDevices(instance.handle, &count, null);
+        try check(instance.dispatch.vkEnumeratePhysicalDevices(instance.handle, &count, null));
         var physical_devices: [5]c.VkPhysicalDevice = undefined;
-        _ = instance.dispatch.vkEnumeratePhysicalDevices(instance.handle, &count, &physical_devices);
+        try check(instance.dispatch.vkEnumeratePhysicalDevices(instance.handle, &count, &physical_devices));
 
         const required_extensions = [_][*:0]const u8{ c.VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
-        var physical_device: PhysicalDevice = undefined;
-        physical_device.valuation = 0;
+        device.physical_device.valuation = 0;
 
         for (0..count) |i| {
             const new_physical_device = PhysicalDevice.init(
@@ -180,16 +182,16 @@ pub const Device = struct {
                 &required_extensions,
             ) catch continue;
 
-            physical_device.copy_if_better(&new_physical_device);
+            device.physical_device.copy_if_better(&new_physical_device);
         }
 
-        if (!physical_device.valid()) return error.InvalidPhysicalDevice;
+        if (!device.physical_device.valid()) return error.InvalidPhysicalDevice;
 
         var queue_count: u32 = 0;
         var last_value: u32 = 0xFF;
         var queue_infos: [4]c.VkDeviceQueueCreateInfo = undefined;
 
-        for (physical_device.families) |family| {
+        for (device.physical_device.families) |family| {
             if (family != last_value) {
                 last_value = family;
                 queue_infos[queue_count] = .{
@@ -207,29 +209,49 @@ pub const Device = struct {
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .queueCreateInfoCount = queue_count,
             .pQueueCreateInfos = &queue_infos[0],
-            .pEnabledFeatures = &physical_device.features,
+            .pEnabledFeatures = &device.physical_device.features,
             .enabledExtensionCount = @intCast(required_extensions.len),
             .ppEnabledExtensionNames = &required_extensions[0],
         };
 
-        var device: c.VkDevice = undefined;
-        _ = instance.dispatch.vkCreateDevice(physical_device.handle, &info, null, &device);
+        try check(instance.dispatch.vkCreateDevice(device.physical_device.handle, &info, null, &device.handle));
 
-        const dispatch = try Dispatch.init(device, instance);
-        var queues: [4]c.VkQueue = undefined;
+        device.dispatch = try Dispatch.init(device.handle, instance);
 
         for (0..4) |i| {
-            dispatch.vkGetDeviceQueue(device, physical_device.families[i], 0, &queues[i]);
+            device.dispatch.vkGetDeviceQueue(device.handle, device.physical_device.families[i], 0, &device.queues[i]);
         }
 
-        _ = ARENA.deinit();
+        return device;
+    }
 
-        return Device {
-            .handle = device,
-            .physical_device = physical_device,
-            .queues = queues,
-            .dispatch = dispatch,
+    fn allocate_memory(
+        self: *const Device,
+        properties: u32,
+        requirements: *const c.VkMemoryRequirements
+    ) !c.VkDeviceMemory {
+        var index: u32 = 0;
+
+        for (0..self.physical_device.memory_properties) |i| {
+            const a: u5 = @intCast(i);
+            const b: u32 = 1;
+
+            if ((requirements.memoryTypeBits & (b << a)) > 0 and (self.physical_device.memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                index = @intCast(i);
+                break;
+            }
+        }
+
+        const alloc_info = c.VkMemoryAllocateInfo {
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = requirements.size,
+            .memoryTypeIndex = index,
         };
+
+        var memory: c.VkDeviceMemory = undefined;
+        try check(self.dispatch.vkAllocateMemory(self.handle, &alloc_info, null, &memory));
+
+        return memory;
     }
 
     pub fn deinit(self: *const Device) void {
@@ -238,11 +260,11 @@ pub const Device = struct {
 };
 
 const GpuType = enum {
-    Other,
-    Integrated,
     Discrete,
+    Integrated,
     Virtual,
     Cpu,
+    Other,
 
     fn init(n: u32) GpuType {
         return switch (n) {
@@ -276,12 +298,12 @@ const PhysicalDevice = struct {
         instance: *const Instance,
         handle: c.VkPhysicalDevice,
         required_extensions: []const [*:0]const u8,
-    ) error{Missingextension, MissingFamily, MissingFeature, AllocationFailed}!PhysicalDevice {
+    ) !PhysicalDevice {
         {
             var count: u32 = 0;
-            _ = instance.dispatch.vkEnumerateDeviceExtensionProperties(handle, null, &count, null);
-            const properties = ALLOCATOR.alloc(c.VkExtensionProperties, count) catch return error.AllocationFailed;
-            _ = instance.dispatch.vkEnumerateDeviceExtensionProperties(handle, null, &count, properties.ptr);
+            var properties: [200]c.VkExtensionProperties = undefined;
+            try check(instance.dispatch.vkEnumerateDeviceExtensionProperties(handle, null, &count, null));
+            try check(instance.dispatch.vkEnumerateDeviceExtensionProperties(handle, null, &count, &properties));
 
             var has_all_extensions = false;
 
@@ -295,18 +317,18 @@ const PhysicalDevice = struct {
                 has_all_extensions = true;
             }
 
-            if (!has_all_extensions) return error.Missingextension;
+            if (!has_all_extensions) return error.MissingExtension;
         }
 
         {
             var count: u32 = 0;
-            _ = instance.dispatch.vkGetPhysicalDeviceSurfaceFormatsKHR(handle, instance.surface, &count, null);
+            try check(instance.dispatch.vkGetPhysicalDeviceSurfaceFormatsKHR(handle, instance.surface, &count, null));
             if (count == 0) return error.MissingFeature;
         }
 
         {
             var count: u32 = 0;
-            _ = instance.dispatch.vkGetPhysicalDeviceSurfacePresentModesKHR(handle, instance.surface, &count, null);
+            try check(instance.dispatch.vkGetPhysicalDeviceSurfacePresentModesKHR(handle, instance.surface, &count, null));
             if (count == 0) return error.MissingFeature;
         }
 
@@ -314,16 +336,16 @@ const PhysicalDevice = struct {
         {
             var count: u32 = 0;
 
+            var properties: [10]c.VkQueueFamilyProperties = undefined;
             instance.dispatch.vkGetPhysicalDeviceQueueFamilyProperties(handle, &count, null);
-            const properties = ALLOCATOR.alloc(c.VkQueueFamilyProperties, count) catch return error.AllocationFailed;
-            instance.dispatch.vkGetPhysicalDeviceQueueFamilyProperties(handle, &count, properties.ptr);
+            instance.dispatch.vkGetPhysicalDeviceQueueFamilyProperties(handle, &count, &properties);
 
             for (0..count) |i| {
                 const family: u8 = @intCast(i);
                 const index: u32 = @intCast(i);
 
                 var surface_support: u32 = 0;
-                _ = instance.dispatch.vkGetPhysicalDeviceSurfaceSupportKHR(handle, index, instance.surface, &surface_support);
+                try check(instance.dispatch.vkGetPhysicalDeviceSurfaceSupportKHR(handle, index, instance.surface, &surface_support));
 
                 if (families[0] == 0xFF and properties[i].queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) families[0] = family;
                 if (families[1] == 0xFF and surface_support != 0) families[1] = family;
@@ -331,7 +353,7 @@ const PhysicalDevice = struct {
                 if (families[3] == 0xFF and properties[i].queueFlags & c.VK_QUEUE_TRANSFER_BIT != 0) families[3] = family;
             }
 
-            for (families) |f| if (f == 0xFF) return error.MissingFamily;
+            for (families) |f| if (f == 0xFF) return error.MissingFeature;
         }
 
         var features: c.VkPhysicalDeviceFeatures = undefined;

@@ -1,3 +1,18 @@
+const std = @import("std");
+
+const Allocator = std.mem.Allocator;
+
+pub fn read_file(path: []const u8, buffer: []u8) !u32 {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const end_pos = try file.getEndPos();
+
+    if (try file.read(buffer) != end_pos) return error.IncompleteContetent;
+
+    return @intCast(end_pos);
+}
+
 pub fn copy(T: type, src: []const T, dst: []T) void {
     @setRuntimeSafety(false);
 
