@@ -113,7 +113,7 @@ pub const Buffer = struct {
             for (0..len) |i| {
                 if (content[i] == '\n') {
                     try lines.push(
-                        try Line.init(content[start..i], allocator)
+                        try Line.init(content[start..i + 1], allocator)
                     );
 
                     start = i + 1;
@@ -174,6 +174,10 @@ pub const Buffer = struct {
         self.selection.move(to);
     }
 
+    pub fn set_language(self: *Buffer, name: []const u8, allocator: Allocator) void {
+        self.highlight = Highlight.init(name, self, allocator) catch return;
+    }
+
     pub fn set_size(self: *Buffer, size: *const Length) void {
         self.rect.size.move(size);
     }
@@ -194,34 +198,13 @@ pub const Buffer = struct {
 
     pub fn commands() []const Fn {
         return &[_]Fn {
-            Fn {
-                .f = enter,
-                .hash = util.hash_key("Ret"),
-            },
-            Fn {
-                .f = next_line,
-                .hash = util.hash_key("C-n"),
-            },
-            Fn {
-                .f = prev_line,
-                .hash = util.hash_key("C-p"),
-            },
-            Fn {
-                .f = next_char,
-                .hash = util.hash_key("C-f"),
-            },
-            Fn {
-                .f = prev_char,
-                .hash = util.hash_key("C-b"),
-            },
-            Fn {
-                .f = line_end,
-                .hash = util.hash_key("C-e"),
-            },
-            Fn {
-                .f = line_start,
-                .hash = util.hash_key("C-a"),
-            },
+            Fn { .f = enter,      .hash = util.hash_key("Ret") },
+            Fn { .f = next_line,  .hash = util.hash_key("C-n") },
+            Fn { .f = prev_line,  .hash = util.hash_key("C-p") },
+            Fn { .f = next_char,  .hash = util.hash_key("C-f") },
+            Fn { .f = prev_char,  .hash = util.hash_key("C-b") },
+            Fn { .f = line_end,   .hash = util.hash_key("C-e") },
+            Fn { .f = line_start, .hash = util.hash_key("C-a") },
         };
     }
 
@@ -236,6 +219,7 @@ fn enter(ptr: *anyopaque) !void {
     const cursor = self.cursor;
     const line = try self.lines.get_mut(cursor.coord.y);
     const content = line.content.truncate(cursor.coord.x);
+
     const new_cursor = Cursor.init(
         Coord.init(line.indent, cursor.coord.y + 1), 
         cursor.offset + line.indent + 1
@@ -246,6 +230,7 @@ fn enter(ptr: *anyopaque) !void {
         new_cursor.coord.y,
     );
 
+    try self.lines.items[cursor.coord.y].content.push('\n');
     self.cursor.move(&new_cursor);
 }
 
@@ -256,8 +241,8 @@ fn next_line(ptr: *anyopaque) !void {
     const line = try self.lines.get(y);
     const current_line = try self.lines.get(self.cursor.coord.y);
 
-    const x = math.min(self.cursor.coord.x, line.content.len());
-    const offset = current_line.content.len() + 1 + x - self.cursor.coord.x;
+    const x = math.min(self.cursor.coord.x, line.content.len() - 1);
+    const offset = current_line.content.len() + x - self.cursor.coord.x;
     const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset + offset);
 
     self.move_cursor(&new_cursor);
@@ -270,7 +255,7 @@ fn prev_line(ptr: *anyopaque) !void {
     const y = self.cursor.coord.y - 1;
     const line = try self.lines.get(y);
 
-    const len = line.content.len();
+    const len = line.content.len() - 1;
     const x = math.min(self.cursor.coord.x, len);
     const offset = self.cursor.coord.x + 1 + len - x;
     const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset - offset);
@@ -286,7 +271,7 @@ fn next_char(ptr: *anyopaque) !void {
     var y = self.cursor.coord.y;
     var x = self.cursor.coord.x;
 
-    if (x + 1 > line.content.len()) {
+    if (x + 1 >= line.content.len()) {
         y += 1;
         x = 0;
         try util.assert(y < self.lines.len());
@@ -309,7 +294,7 @@ fn prev_char(ptr: *anyopaque) !void {
         y -= 1;
 
         const line = try self.lines.get(y);
-        x = line.content.len();
+        x = line.content.len() - 1;
     } else {
         x -= 1;
     }
@@ -322,7 +307,7 @@ fn line_end(ptr: *anyopaque) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
     const line = try self.lines.get(self.cursor.coord.y);
-    const len = line.content.len();
+    const len = line.content.len() - 1;
 
     const new_cursor = Cursor.init(
         Coord.init(len, self.cursor.coord.y), 

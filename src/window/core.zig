@@ -35,39 +35,26 @@ pub const ResizeListener = struct {
 
 pub fn Core(Backend: type) type {
     return struct {
+        painter: *Painter,
         handle: Backend,
+
+        commands: FixedVec(CommandHandler, 3),
+        listeners: FixedVec(ResizeListener, 2),
 
         buffers: Cursor(Buffer),
         mode_line: ModeLine,
-        commands: FixedVec(CommandHandler, 3),
-        size: Size,
 
-        allocator: Allocator,
-        listeners: FixedVec(ResizeListener, 2),
-        painter: *Painter,
         state: State,
         mode: Mode,
 
+        size: Size,
         ratios: [3]f32,
-    // chars: [CHAR_COUNT] Char,
-    // last_char: u8,
-    // mode: WindowMode,
+        allocator: Allocator,
 
-    // buffer_index: u32,
     // update: bool,
-    // running: bool,
-    // resize: bool,
 
-    // control: bool,
-    // alt: bool,
-    // shift: bool,
 
-    // cols: u32,
-    // rows: u32,
 
-    // font_ratio: f32,
-    // font_scale: f32,
-    // scale: f32,
 
     // key_delay: u64,
     // key_rate: u64,
@@ -75,11 +62,8 @@ pub fn Core(Backend: type) type {
     // last_fetch_delay: Instant,
     // last_fetch_rate: Instant,
 
-    // width: u32,
-    // height: u32,
 
     // last_fn: ?*const fn(*Core) anyerror!void,
-    // allocator: Allocator,
 
         const Self = @This();
 
@@ -147,9 +131,7 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn update(self: *Self) !void {
-            const buffer = self.buffers.get();
-
-            try self.painter.update(buffer, &self.mode_line);
+            try self.painter.update(self.buffers.get(), &self.mode_line);
             try self.painter.draw();
 
             self.handle.update_surface();
@@ -157,10 +139,6 @@ pub fn Core(Backend: type) type {
 
         pub fn add_listener(self: *Self, listener: ResizeListener) !void {
             try self.listeners.push(listener);
-        }
-
-        pub fn add_painter(self: *Self, painter: *Painter) void {
-            self.painter = painter;
         }
 
         pub fn key_input(self: *Self, key_string: []const u8) !void {
@@ -200,14 +178,8 @@ pub fn Core(Backend: type) type {
 
         fn commands_handle() []const Fn {
             return &[_]Fn {
-                Fn {
-                    .hash = util.hash_key("Ret"),
-                    .f = enter,
-                },
-                Fn {
-                    .hash = util.hash_key("A-x"),
-                    .f = command_mode,
-                },
+                Fn { .f = enter,        .hash = util.hash_key("Ret") },
+                Fn { .f = command_mode, .hash = util.hash_key("A-x") },
             };
         }
 

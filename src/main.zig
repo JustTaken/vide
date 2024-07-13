@@ -23,7 +23,7 @@ pub fn main() !void {
     const command_pool = try CommandPool.init(&device, &swapchain, allocator);
     var painter = try Painter.init(&swapchain, &graphics_pipeline, &command_pool, &font, window.size, allocator);
 
-    window.add_painter(&painter);
+    window.painter = &painter;
     try window.add_listener(painter.resize_listener());
     try window.add_listener(swapchain.resize_listener());
     try window.update();

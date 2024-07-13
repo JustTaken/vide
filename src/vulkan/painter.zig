@@ -150,8 +150,8 @@ pub const Painter = struct {
     }
 
     fn on_char(self: *Painter, char: u8, col: usize, row: usize) !void {
+        if (char == ' ' or char == '\n') return;
         const code = char - 32;
-        if (code == 0) return;
 
         const j: u32 = @intCast(col);
         const i: u32 = @intCast(row);
