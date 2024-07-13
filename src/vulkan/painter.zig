@@ -16,6 +16,7 @@ const CommandPool = @import("command_pool.zig").CommandPool;
 const Font = @import("../truetype.zig").TrueType;
 
 const WindowBuffer = @import("../window/buffer.zig").Buffer;
+const ModeLine = @import("../window/mode_line.zig").ModeLine;
 const ResizeListener = @import("../window/core.zig").ResizeListener;
 
 const Allocator = std.mem.Allocator;
@@ -171,13 +172,15 @@ pub const Painter = struct {
         );
     }
 
-    pub fn update(self: *Painter, buffer: *const WindowBuffer) !void {
+    pub fn update(self: *Painter, buffer: *const WindowBuffer, mode_line: *const ModeLine) !void {
         for (self.vertices) |*v| {
             v.reset();
         }
 
         try buffer.char_iter(Painter, self, on_char);
         try buffer.back_iter(Painter, self, on_back);
+        try mode_line.char_iter(Painter, self, on_char);
+        try mode_line.cursor_back(Painter, self, on_back);
     }
 
     pub fn draw(self: *const Painter) !void {

@@ -1,13 +1,15 @@
 const std = @import("std");
 const c = @import("bind.zig").c;
-
 const math = @import("math.zig");
+
 const Allocator = std.mem.Allocator;
 
-const Vec2D = math.Vec2D;
-const Size = Vec2D;
-const Offset = Vec2D;
+const Size = math.Vec2D;
+const Offset = math.Vec2D;
 
+const ROWS: u32 = 9;
+const COLS: u32 = 11;
+const GLYPH_COUNT: u32 = 95;
 const PADDING: u32 = 3;
 
 const CBitmap = struct {
@@ -39,7 +41,7 @@ const Bitmap = struct {
         @setRuntimeSafety(false);
 
         for (0..from.size.y) |y| {
-            const self_line_offset = (y + offset.y) * self.size.x;
+            const self_line_offset = (offset.y + y) * self.size.x;
             const from_line_offset = y * from.size.x;
 
             for (0..from.size.x) |x| {
@@ -58,11 +60,22 @@ const Bitmap = struct {
     }
 };
 
+const Bearing = struct {
+    x: i32,
+    y: i32,
+
+    fn init(x: i32, y: i32) Bearing {
+        return Bearing {
+            .x = x,
+            .y = y,
+        };
+    }
+};
+
 const Glyph = struct {
     bitmap: CBitmap,
     offset: Offset,
-    top: i32,
-    left: u32,
+    bearing: Bearing,
 };
 
 const Face = struct {
@@ -71,6 +84,7 @@ const Face = struct {
 
     em: u32,
     ascender: u32,
+    descender: u32,
     glyph_size: Size,
 
     const DPI: u32 = 72;
@@ -85,7 +99,7 @@ const Face = struct {
 
         const glyph_size = Size.init(
             math.from_fixed(face.*.size.*.metrics.max_advance),
-            math.from_fixed(face.*.size.*.metrics.height) + 1,
+            math.from_fixed(face.*.size.*.metrics.height),
         );
 
         return Face {
@@ -93,6 +107,7 @@ const Face = struct {
             .library = library,
             .glyph_size = glyph_size,
             .ascender = math.from_fixed(face.*.size.*.metrics.ascender),
+            .descender = math.from_fixed(- face.*.size.*.metrics.descender),
             .em = face.*.units_per_EM,
         };
     }
@@ -108,7 +123,6 @@ const Face = struct {
         _ = c.FT_Render_Glyph(glyph, c.FT_RENDER_MODE_NORMAL);
 
         const glyph_bitmap = glyph.*.bitmap;
-
         const bitmap = CBitmap {
             .handle = glyph_bitmap.buffer,
             .size = Size.init(glyph_bitmap.width, glyph_bitmap.rows),
@@ -116,7 +130,7 @@ const Face = struct {
 
         const i = code - 32;
         const line: u32 = i / COLS;
-        const col: u32 = index - line * COLS;
+        const col: u32 = i - line * COLS;
 
         const offset = Offset.init(
             col * (self.glyph_size.x + PADDING),
@@ -126,8 +140,7 @@ const Face = struct {
         return Glyph {
             .bitmap = bitmap,
             .offset = offset,
-            .top = glyph.*.bitmap_top,
-            .left = math.from_fixed(glyph.*.metrics.horiBearingX),
+            .bearing = Bearing.init(glyph.*.bitmap_left, glyph.*.bitmap_top),
         };
     }
 
@@ -150,7 +163,7 @@ pub const TrueType = struct {
 
         var bitmap = try Bitmap.init(
             Size.init(
-                (face.glyph_size.x + PADDING) * COLS,
+                (face.glyph_size.x + PADDING) * (COLS + 1),
                 (face.glyph_size.y + PADDING) * ROWS,
             ),
             allocator,
@@ -162,8 +175,8 @@ pub const TrueType = struct {
             const glyph = face.get_glyph(i);
 
             const insert_offset = Offset {
-                .x = glyph.offset.x + glyph.left,
-                .y = math.sub(glyph.offset.y + face.ascender, glyph.top),
+                .x = math.sum(glyph.offset.x, glyph.bearing.x),
+                .y = glyph.offset.y + face.glyph_size.y - math.sum(face.descender, glyph.bearing.y),
             };
 
             bitmap.append(&glyph.bitmap, insert_offset);
@@ -198,7 +211,3 @@ pub const TrueType = struct {
         self.bitmap.deinit();
     }
 };
-
-const ROWS: u32 = 9;
-const COLS: u32 = 11;
-const GLYPH_COUNT: u32 = 95;

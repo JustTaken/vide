@@ -1,10 +1,12 @@
 const std = @import("std");
 const math = @import("../math.zig");
+const util = @import("../util.zig");
 
 const Allocator = std.mem.Allocator;
 
 const Highlight = @import("highlight.zig").Highlight;
 const Vec = @import("../collections.zig").Vec;
+const Fn = @import("command.zig").FnSub;
 
 const Rect = math.Rect;
 const Coord = math.Vec2D;
@@ -32,6 +34,23 @@ const Line = struct {
             .content = vec,
             .indent = indent,
         };
+    }
+
+    fn with_indent(content: []const u8, indent: u32, allocator: Allocator) !Line {
+        const len = @as(u32, @intCast(content.len)) + indent;
+
+        var vec = try Vec(u8).init(math.max(len, CHAR_COUNT), allocator);
+        try vec.repeat(' ', indent);
+        try vec.extend_insert(content, indent);
+
+        return Line {
+            .content = vec,
+            .indent = indent,
+        };
+    }
+
+    fn insert_string(self: *Line, string: []const u8, col: u32) !void {
+        try self.content.extend_insert(string, col);
     }
 
     fn deinit(self: *const Line) void {
@@ -90,14 +109,14 @@ pub const Buffer = struct {
         var lines = try Vec(Line).init((len + Line.CHAR_COUNT) / Line.CHAR_COUNT, allocator);
 
         {
-            var line_start: usize = 0;
+            var start: usize = 0;
             for (0..len) |i| {
                 if (content[i] == '\n') {
                     try lines.push(
-                        try Line.init(content[line_start..i], allocator)
+                        try Line.init(content[start..i], allocator)
                     );
 
-                    line_start = i + 1;
+                    start = i + 1;
                 }
             }
         }
@@ -122,7 +141,12 @@ pub const Buffer = struct {
         };
     }
 
-    pub fn char_iter(self: *const Buffer, T: type, ptr: *T, f: fn (*T, u8, usize, usize) anyerror!void) !void {
+    pub fn char_iter(
+        self: *const Buffer, 
+        T: type, 
+        ptr: *T, 
+        f: fn (*T, u8, usize, usize) anyerror!void
+    ) !void {
         const end = self.rect.end();
         const lines = self.lines.range(self.rect.coord.y, end.y) catch return;
 
@@ -135,7 +159,12 @@ pub const Buffer = struct {
         }
     }
 
-    pub fn back_iter(self: *const Buffer, T: type, ptr: *T, f: fn (*T, usize, usize) anyerror!void) !void {
+    pub fn back_iter(
+        self: *const Buffer, 
+        T: type, 
+        ptr: *T, 
+        f: fn (*T, usize, usize) anyerror!void
+    ) !void {
         const coord = self.cursor.coord.sub(&self.rect.coord);
         try f(ptr, coord.x, coord.y);
     }
@@ -149,10 +178,171 @@ pub const Buffer = struct {
         self.rect.size.move(size);
     }
 
+    pub fn insert_string(self: *Buffer, string: []const u8) !void {
+        const cursor = self.cursor;
+        const len: u32 = @intCast(string.len);
+        const line = try self.lines.get_mut(cursor.coord.y);
+
+        try line.insert_string(string, cursor.coord.x);
+        self.move_cursor(&
+            Cursor.init(
+                Coord.init(cursor.coord.x + len, cursor.coord.y), 
+                cursor.offset + len
+            )
+        );
+    }
+
+    pub fn commands() []const Fn {
+        return &[_]Fn {
+            Fn {
+                .f = enter,
+                .hash = util.hash_key("Ret"),
+            },
+            Fn {
+                .f = next_line,
+                .hash = util.hash_key("C-n"),
+            },
+            Fn {
+                .f = prev_line,
+                .hash = util.hash_key("C-p"),
+            },
+            Fn {
+                .f = next_char,
+                .hash = util.hash_key("C-f"),
+            },
+            Fn {
+                .f = prev_char,
+                .hash = util.hash_key("C-b"),
+            },
+            Fn {
+                .f = line_end,
+                .hash = util.hash_key("C-e"),
+            },
+            Fn {
+                .f = line_start,
+                .hash = util.hash_key("C-a"),
+            },
+        };
+    }
+
     pub fn deinit(self: *const Buffer) void {
         self.lines.deinit();
     }
 };
+
+fn enter(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    const cursor = self.cursor;
+    const line = try self.lines.get_mut(cursor.coord.y);
+    const content = line.content.truncate(cursor.coord.x);
+    const new_cursor = Cursor.init(
+        Coord.init(line.indent, cursor.coord.y + 1), 
+        cursor.offset + line.indent + 1
+    );
+
+    try self.lines.insert(
+        try Line.with_indent(content, line.indent, self.lines.allocator),
+        new_cursor.coord.y,
+    );
+
+    self.cursor.move(&new_cursor);
+}
+
+fn next_line(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    const y = self.cursor.coord.y + 1;
+    const line = try self.lines.get(y);
+    const current_line = try self.lines.get(self.cursor.coord.y);
+
+    const x = math.min(self.cursor.coord.x, line.content.len());
+    const offset = current_line.content.len() + 1 + x - self.cursor.coord.x;
+    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset + offset);
+
+    self.move_cursor(&new_cursor);
+}
+
+fn prev_line(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+    if (self.cursor.coord.y == 0) return error.NoPrevLine;
+
+    const y = self.cursor.coord.y - 1;
+    const line = try self.lines.get(y);
+
+    const len = line.content.len();
+    const x = math.min(self.cursor.coord.x, len);
+    const offset = self.cursor.coord.x + 1 + len - x;
+    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset - offset);
+
+    self.move_cursor(&new_cursor);
+}
+
+fn next_char(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    var line = try self.lines.get(self.cursor.coord.y);
+
+    var y = self.cursor.coord.y;
+    var x = self.cursor.coord.x;
+
+    if (x + 1 > line.content.len()) {
+        y += 1;
+        x = 0;
+        try util.assert(y < self.lines.len());
+    } else {
+        x += 1;
+    }
+
+    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset + 1);
+    self.move_cursor(&new_cursor);
+}
+
+fn prev_char(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    var y = self.cursor.coord.y;
+    var x = self.cursor.coord.x;
+
+    if (x < 1) {
+        try util.assert(y > 0);
+        y -= 1;
+
+        const line = try self.lines.get(y);
+        x = line.content.len();
+    } else {
+        x -= 1;
+    }
+
+    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset - 1);
+    self.move_cursor(&new_cursor);
+}
+
+fn line_end(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    const line = try self.lines.get(self.cursor.coord.y);
+    const len = line.content.len();
+
+    const new_cursor = Cursor.init(
+        Coord.init(len, self.cursor.coord.y), 
+        self.cursor.offset + len - self.cursor.coord.x
+    );
+
+    self.move_cursor(&new_cursor);
+}
+
+fn line_start(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    try util.assert(self.cursor.coord.x > 0);
+    const new_cursor = Cursor.init(
+        Coord.init(0, self.cursor.coord.y), 
+        self.cursor.offset - self.cursor.coord.x
+    );
+
+    self.move_cursor(&new_cursor);
+}
 
 // fn enter(core: *Wayland) !void {
 //     const buffer = &core.buffers[core.buffer_index];

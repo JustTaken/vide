@@ -1,31 +1,90 @@
 const std = @import("std");
+const util = @import("../util.zig");
 
 const Allocator = std.mem.Allocator;
 
-const MAX_BYTES: u32 = 20000;
+pub const FnSub = struct {
+    hash: u32,
+    f: *const fn (*anyopaque) anyerror!void,
+};
 
-const OPEN = "open";
-const BUFFER = "buffer";
-const SAVE = "save";
-const NEXT_CHAR = "next_char";
-const PREV_CHAR = "prev_char";
-const NEXT_CMD_CHAR = "next_cmd_char";
-const PREV_CMD_CHAR = "prev_cmd_char";
-const ACTIVATE = "activate";
-
-pub const CommandLine = struct {
-    content: []u8,
+pub const CommandHandler = struct {
+    ptr: *anyopaque,
+    string_sub: ?[]const FnSub,
+    key_sub: ?[]const FnSub,
     allocator: Allocator,
 
-    pub fn init(cols: u32, allocator: Allocator) !CommandLine {
-        return CommandLine {
-            .content = try allocator.alloc(u8, cols),
-            .allocator = allocator,
-        };
+    pub fn init(
+        ptr: *anyopaque, 
+        key_sub: ?[]const FnSub, 
+        string_sub: ?[]const FnSub, 
+        allocator: Allocator
+    ) !CommandHandler {
+        var command_handler: CommandHandler = undefined;
+
+        command_handler.string_sub = null;
+        command_handler.key_sub = null;
+
+        if (key_sub) |sub| {
+            const s = try allocator.alloc(FnSub, sub.len);
+            util.copy(FnSub, sub, s);
+            command_handler.key_sub = s;
+        }
+
+        if (string_sub) |sub| {
+            const s = try allocator.alloc(FnSub, sub.len);
+            util.copy(FnSub, sub, s);
+            command_handler.string_sub = s;
+        }
+
+        command_handler.ptr = ptr;
+        command_handler.allocator = allocator;
+
+        return command_handler;
     }
 
-    pub fn deinit(self: *const CommandLine) void {
-        self.allocator.free(self.content);
+    pub fn execute_key(self: *const CommandHandler, keys: []const u8) bool {
+        if (self.key_sub) |sub| {
+            const hash = util.hash_key(keys);
+
+            for (sub) |e| {
+                if (e.hash != hash) continue;
+
+                e.f(self.ptr) catch return false;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn execute_string(self: *const CommandHandler, string: []const u8) bool {
+        if (self.string_sub) |sub| {
+            const hash = util.hash(string);
+
+            for (sub) |e| {
+                if (e.hash != hash) continue;
+
+                e.f(self.ptr) catch return false;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn change(self: *CommandHandler, ptr: *anyopaque) void {
+        self.ptr = ptr;
+    }
+
+    pub fn deinit(self: *const CommandHandler) void {
+        if (self.key_sub) |sub| {
+            self.allocator.free(sub);
+        }
+
+        if (self.string_sub) |sub| {
+            self.allocator.free(sub);
+        }
     }
 };
 

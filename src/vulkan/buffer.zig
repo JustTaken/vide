@@ -1,3 +1,4 @@
+const std = @import("std");
 const c = @import("../bind.zig").c;
 const check = @import("result.zig").check;
 const util = @import("../util.zig");
@@ -122,10 +123,7 @@ pub fn Vec(T: type) type {
 
             if (self.capacity <= count) {
                 const new_len = count * 2;
-                device.dispatch.vkUnmapMemory(device.handle, self.buffer.memory);
-
-                self.deinit(device);
-                self.buffer = try Buffer.init(
+                const buffer = try Buffer.init(
                     T,
                     new_len,
                     self.usage,
@@ -133,8 +131,15 @@ pub fn Vec(T: type) type {
                     device,
                 );
 
+                var new: []T = undefined;
+                try check(device.dispatch.vkMapMemory(device.handle, buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&new)));
+
+                util.copy(T, self.elements, new);
+                self.deinit(device);
+
+                self.buffer = buffer;
+                self.elements.ptr = new.ptr;
                 self.capacity = new_len;
-                try check(device.dispatch.vkMapMemory(device.handle, self.buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&self.elements)));
             }
 
             self.elements.len += 1;

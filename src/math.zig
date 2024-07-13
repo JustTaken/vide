@@ -54,6 +54,13 @@ pub inline fn sub(first: u32, second: i32) u32 {
 
     return @intCast(f - second);
 }
+
+pub inline fn sum(first: u32, second: i32) u32 {
+    const f: i32 = @intCast(first);
+
+    return @intCast(f + second);
+}
+
 pub inline fn from_fixed(fixed: isize) u32 {
     return @intCast(fixed >> 6);
 }

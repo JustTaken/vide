@@ -2,17 +2,13 @@ const std = @import("std");
 const c = @import("../bind.zig").c;
 
 const math = @import("../math.zig");
-// const buffer = @import("buffer.zig");
-// const mode_line = @import("mode_line.zig");
 const util = @import("../util.zig");
-// const command = @import("command.zig");
-// const highlight = @import("highlight.zig");
+
 const Window = @import("../window/core.zig").Core(Wayland);
 const VkInstanceDispatch = @import("../vulkan/instance.zig").Dispatch;
 
 const Allocator = std.mem.Allocator;
 const Instant = std.time.Instant;
-// const CHAR_COUNT: u32 = 95;
 
 pub const Wayland = struct {
     display: *c.wl_display,
@@ -32,6 +28,7 @@ pub const Wayland = struct {
     xdg_toplevel_listener: c.xdg_toplevel_listener,
     seat_listener: c.wl_seat_listener,
     keyboard_listener: c.wl_keyboard_listener,
+
     control: bool,
     alt: bool,
     shift: bool,
@@ -427,7 +424,7 @@ pub const Wayland = struct {
 //     std.debug.print("time elapsed: {} ns\n", .{core.last_fetch_delay.since(start)});
 // }
 
-fn build_key_string(string: []u8, control: bool, alt: bool, char: u8) u32 {
+fn build_key_string(string: []u8, control: bool, alt: bool, chars: []const u8) u32 {
     var len: u32 = 0;
 
     if (control) {
@@ -442,9 +439,10 @@ fn build_key_string(string: []u8, control: bool, alt: bool, char: u8) u32 {
         len += 2;
     }
 
-    string[len] = char;
-
-    len += 1;
+    for (chars) |ch| {
+        string[len] = ch;
+        len += 1;
+    }
 
     return len;
 }
@@ -528,11 +526,18 @@ pub fn keyboard_key(data: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, _: u32, id: u
     }
 
     const core = &window.handle;
-    const tuple = ascci(id) catch return;
-    const char = if (core.shift) tuple[1] else tuple[0];
+    const string = blk: {
+        const tuple = ascci(id) catch null;
 
-    var key_string: [5]u8 = undefined;
-    const key_string_len = build_key_string(&key_string, core.control, core.alt, char);
+        if (tuple) |t| {
+            break :blk if (core.shift) t[1] else t[0];
+        }
+
+        break :blk special(id) catch return;
+    };
+
+    var key_string: [10]u8 = undefined;
+    const key_string_len = build_key_string(&key_string, core.control, core.alt, string);
 
     window.key_input(key_string[0..key_string_len]) catch return;
 }
@@ -564,67 +569,75 @@ pub fn keyboard_repeat_info(data: ?*anyopaque, _: ?*c.wl_keyboard, rate: i32, de
     // core.key_rate = r * 1000 * 1000;
 }
 
-pub fn ascci(u: u32) ![2]u8 {
+pub fn ascci(u: u32) ![2][]const u8 {
     return switch (u) {
-        2 => .{ '1', '!' },
-        3 => .{ '2', '@' },
-        4 => .{ '3', '#' },
-        5 => .{ '4', '$' },
-        6 => .{ '5', '%' },
-        7 => .{ '6', '^' },
-        8 => .{ '7', '&' },
-        9 => .{ '8', '*' },
-        10 => .{ '9', '(' },
-        11 => .{ '0', ')' },
-        12 => .{ '-', '_' },
-        13 => .{ '=', '+' },
-        15 => .{ '\t', '\t' },
+        2 => .{ "1", "!" },
+        3 => .{ "2", "@" },
+        4 => .{ "3", "#" },
+        5 => .{ "4", "$" },
+        6 => .{ "5", "%" },
+        7 => .{ "6", "^" },
+        8 => .{ "7", "&" },
+        9 => .{ "8", "*" },
+        10 => .{ "9", "(" },
+        11 => .{ "0", ")" },
+        12 => .{ "-", "_" },
+        13 => .{ "=", "+" },
 
-        16 => .{ 'q', 'Q' },
-        17 => .{ 'w', 'W' },
-        18 => .{ 'e', 'E' },
-        19 => .{ 'r', 'R' },
-        20 => .{ 't', 'T' },
-        21 => .{ 'y', 'Y' },
-        22 => .{ 'u', 'U' },
-        23 => .{ 'i', 'I' },
-        24 => .{ 'o', 'O' },
-        25 => .{ 'p', 'P' },
+        16 => .{ "q", "Q" },
+        17 => .{ "w", "W" },
+        18 => .{ "e", "E" },
+        19 => .{ "r", "R" },
+        20 => .{ "t", "T" },
+        21 => .{ "y", "Y" },
+        22 => .{ "u", "U" },
+        23 => .{ "i", "I" },
+        24 => .{ "o", "O" },
+        25 => .{ "p", "P" },
 
-        26 => .{ '[', '{' },
-        27 => .{ ']', '}' },
-        28 => .{ '\n', '\n' },
+        26 => .{ "[", "{" },
+        27 => .{ "]", "}" },
 
-        30 => .{ 'a', 'A' },
-        31 => .{ 's', 'S' },
-        32 => .{ 'd', 'D' },
-        33 => .{ 'f', 'F' },
-        34 => .{ 'g', 'G' },
-        35 => .{ 'h', 'H' },
-        36 => .{ 'j', 'J' },
-        37 => .{ 'k', 'K' },
-        38 => .{ 'l', 'L' },
+        30 => .{ "a", "A" },
+        31 => .{ "s", "S" },
+        32 => .{ "d", "D" },
+        33 => .{ "f", "F" },
+        34 => .{ "g", "G" },
+        35 => .{ "h", "H" },
+        36 => .{ "j", "J" },
+        37 => .{ "k", "K" },
+        38 => .{ "l", "L" },
 
-        39 => .{ ';', ':' },
-        40 => .{ '\'', '"' },
+        39 => .{ ";", ":" },
+        40 => .{ "\'", "\"" },
 
-        43 => .{ '\\', '|' },
+        43 => .{ "\\", "|" },
 
-        44 => .{ 'z', 'Z' },
-        45 => .{ 'x', 'X' },
-        46 => .{ 'c', 'C' },
-        47 => .{ 'v', 'V' },
-        48 => .{ 'b', 'B' },
-        49 => .{ 'n', 'N' },
-        50 => .{ 'm', 'M' },
+        44 => .{ "z", "Z" },
+        45 => .{ "x", "X" },
+        46 => .{ "c", "C" },
+        47 => .{ "v", "V" },
+        48 => .{ "b", "B" },
+        49 => .{ "n", "N" },
+        50 => .{ "m", "M" },
 
-        51 => .{ ',', '<' },
-        52 => .{ '.', '>' },
-        53 => .{ '/', '?' },
+        51 => .{ ",", "<" },
+        52 => .{ ".", ">" },
+        53 => .{ "/", "?" },
 
-        57 => .{ ' ', ' ' },
+        57 => .{ " ", " " },
 
         else => return error.NotAscci,
+    };
+}
+
+pub fn special(key: u32) ![]const u8 {
+    return switch (key) {
+        1 => "Esc",
+        14 => "Bsp",
+        15 => "Tab",
+        28 => "Ret",
+        else => return error.NotSpecial,
     };
 }
 

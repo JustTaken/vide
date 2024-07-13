@@ -39,6 +39,18 @@ pub fn Vec(T: type) type {
             self.items[count] = item;
         }
 
+        pub fn repeat(self: *Self, item: T, count: u32) Error!void {
+            const self_len = self.len();
+            const sum: u32 = self_len + count;
+
+            if (self.capacity <= sum) try self.resize(sum * 2);
+
+            self.items.len += count;
+            for (0..count) |i| {
+                self.items[i + self_len] = item;
+            }
+        }
+
         fn resize(self: *Self, capacity: u32) Error!void {
             const new = self.allocator.alloc(T, capacity) catch return Error.AllocationFail;
             const count = self.len();
@@ -79,17 +91,47 @@ pub fn Vec(T: type) type {
 
                 self.capacity = new_len;
             } else {
-                self.items.len += 1;
+                self.items.len = count;
+                const dif = count - index;
 
-                for (index..count) |i| {
-                    self.items[i + 1] = self.items[i];
+                for (0..dif) |i| {
+                    self.items[self.items.len - i - 1] = self.items[count - i - 1];
                 }
             }
 
             self.items[index] = item;
         }
 
-        pub fn range(self: *const Self, start: u32, end: u32) ![]const T {
+        pub fn extend_insert(self: *Self, items: []const T, index: u32) Error!void {
+            const self_len: u32 = @intCast(self.items.len);
+            const other_len: u32 = @intCast(items.len);
+            const count: u32 = self_len + other_len;
+
+            if (self.capacity <= count) {
+                const new_len = count * 2;
+                const new = self.allocator.alloc(T, new_len) catch return Error.AllocationFail;
+    
+                copy(T, self.items[0..index], new);
+                copy(T, self.items[index..], new[index + other_len..]);
+
+                self.allocator.free(self.items.ptr[0..self.capacity]);
+
+                self.items.ptr = new.ptr;
+                self.items.len = count;
+                self.capacity = new_len;
+            } else {
+                self.items.len = count;
+
+                const diff = self_len - index;
+                for (0..diff) |i| {
+                    self.items[self.items.len - 1 - i] = self.items[self_len - 1 - i];
+                }
+            }
+
+            copy(T, items, self.items[index..]);
+        }
+
+        pub fn range(self: *const Self, start: u32, end: u32) Error![]const T {
             var e = end + 1;
 
             if (start > end) return Error.OutOfLength;
@@ -97,6 +139,14 @@ pub fn Vec(T: type) type {
             if (e > self.items.len) e = self.len();
 
             return self.items[start..e];
+        }
+
+        pub fn truncate(self: *Self, index: u32) []const T {
+            if (index >= self.items.len) return &[_] T {};
+            const items = self.items[index..];
+
+            self.items.len = index;
+            return items;
         }
 
         pub fn get(self: *const Self, index: u32) !*const T {
@@ -119,6 +169,10 @@ pub fn Vec(T: type) type {
 
         pub fn len(self: *const Self) u32 {
             return @intCast(self.items.len);
+        }
+
+        pub fn elements(self: *const Self) []const T {
+            return self.items;
         }
 
         pub fn iter(self: *const Self) Iter(T) {
@@ -158,7 +212,8 @@ pub fn Cursor(T: type) type {
         }
 
         pub fn push(self: *Self, item: T) !void {
-             self.elements.push(item) catch return Error.AllocationFail;
+            self.index = self.elements.len();
+            self.elements.push(item) catch return Error.AllocationFail;
         }
 
         pub fn deinit(self: *const Self) void {
@@ -201,27 +256,33 @@ pub fn Iter(T: type) type {
 
 pub fn FixedVec(T: type, L: u32) type {
     return struct {
-        elements: [L]T,
+        items: [L]T,
         len: u32,
 
         const Self = @This();
 
         pub fn init() Self {
             return Self {
-                .elements = undefined,
+                .items = undefined,
                 .len = 0,
             };
         }
 
         pub fn push(self: *Self, item: T) error { OutOfLength }!void {
-            if (self.elements.len <= self.len) return error.OutOfLength;
+            if (self.items.len <= self.len) return error.OutOfLength;
 
-            self.elements[self.len] = item;
+            self.items[self.len] = item;
             self.len += 1;
         }
 
-        pub fn items(self: *Self) []T {
-            return self.elements[0..self.len];
+        pub fn get(self: *Self, index: u32) !*T {
+            if (index >= self.len) return error.OutOfLength;
+
+            return &self.items[index];
+        }
+
+        pub fn elements(self: *Self) []T {
+            return self.items[0..self.len];
         }
     };
 }
@@ -255,9 +316,34 @@ test "insert at vec middle" {
 
     try vec.push(10);
     try vec.push(30);
-    try vec.insert(20, 1);
-    try expect(vec.items.len == 3);
-    try expect(eql(u8, vec.items, &.{ 10, 20, 30}));
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.insert(20, 3);
+    try expect(vec.items.len == 10);
+    try expect(eql(u8, vec.items, &.{ 10, 30, 30, 20, 30, 30, 30, 30, 30, 30}));
+}
+
+test "extend insert at vec middle" {
+    var vec = try Vec(u8).init(2, std.testing.allocator);
+    defer vec.deinit();
+
+    try vec.push(10);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.push(30);
+    try vec.extend_insert(&.{ 20, 20, 40 }, 3);
+    try expect(vec.items.len == 12);
+    try expect(eql(u8, vec.items, &.{ 10, 30, 30, 20, 20, 40, 30, 30, 30, 30, 30, 30}));
 }
 
 test "insert in vec should fail" {

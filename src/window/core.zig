@@ -1,20 +1,27 @@
 const std = @import("std");
 const math = @import("../math.zig");
+const util = @import("../util.zig");
 
 const Vec = @import("../collections.zig").Vec;
 const FixedVec = @import("../collections.zig").FixedVec;
 const Cursor = @import("../collections.zig").Cursor;
 const Buffer = @import("buffer.zig").Buffer;
 const ModeLine = @import("mode_line.zig").ModeLine;
-const CommandLine = @import("command_line.zig").CommandLine;
+const CommandHandler = @import("command.zig").CommandHandler;
 const Size = @import("../math.zig").Vec2D;
 const Painter = @import("../vulkan/painter.zig").Painter;
+const Fn = @import("command.zig").FnSub;
 
 const Allocator = std.mem.Allocator;
 
 pub const State = enum {
     Running,
     Closing,
+};
+
+pub const Mode = enum {
+    Normal,
+    Command,
 };
 
 pub const ResizeListener = struct {
@@ -32,18 +39,18 @@ pub fn Core(Backend: type) type {
 
         buffers: Cursor(Buffer),
         mode_line: ModeLine,
-        command_line: CommandLine,
+        commands: FixedVec(CommandHandler, 3),
         size: Size,
 
         allocator: Allocator,
         listeners: FixedVec(ResizeListener, 2),
         painter: *Painter,
         state: State,
+        mode: Mode,
 
         ratios: [3]f32,
     // chars: [CHAR_COUNT] Char,
     // last_char: u8,
-    // command_handler: command.Command,
     // mode: WindowMode,
 
     // buffer_index: u32,
@@ -86,25 +93,33 @@ pub fn Core(Backend: type) type {
             const self = try allocator.create(Self);
             try Backend.init(self);
 
+            self.listeners = FixedVec(ResizeListener, 2).init();
+            self.commands = FixedVec(CommandHandler, 3).init();
+
+            try self.commands.push(try CommandHandler.init(self, commands_handle(), null, allocator));
+
             self.ratios[0] = math.divide(height, width);
             self.ratios[1] = font_scale;
             self.ratios[2] = font_ratio;
             self.size = Size.init(width, height);
 
             const cels = Size.init(
-                @intFromFloat(1.0 / self.ratios[1]),
-                @intFromFloat(1.0 / (self.ratios[0] * self.ratios[1] * self.ratios[2]))
+                @intFromFloat(1.0 / (self.ratios[0] * self.ratios[1] * self.ratios[2])),
+                @intFromFloat(1.0 / self.ratios[1])
             );
 
             self.buffers = try Cursor(Buffer).init(5, allocator);
             try self.buffers.push(try Buffer.init("scratch", "This is a scratch buffer\n", cels, allocator));
 
-            self.mode_line = try ModeLine.init(10, allocator);
-            self.command_line = try CommandLine.init(10, allocator);
-            self.listeners = FixedVec(ResizeListener, 2).init();
-            self.allocator = allocator;
+            const buffer = self.buffers.get_mut();
+            try self.commands.push(try CommandHandler.init(buffer, Buffer.commands(), null, allocator));
+
+            self.mode_line = try ModeLine.init(cels.y, allocator);
+            try self.commands.push(try CommandHandler.init(&self.mode_line, ModeLine.commands(), null, allocator));
 
             self.state = State.Running;
+            self.mode = .Normal;
+            self.allocator = allocator;
 
             return self;
         }
@@ -114,26 +129,27 @@ pub fn Core(Backend: type) type {
             if (!self.size.eql(&new_size)) {
                 self.size.move(&new_size);
 
-                for (self.listeners.items()) |*l| {
+                for (self.listeners.elements()) |*l| {
                     l.listen(&new_size);
                 }
 
                 self.ratios[0] = math.divide(height, width);
 
                 const cels = Size.init(
-                    @intFromFloat(1.0 / self.ratios[1]),
                     @intFromFloat(1.0 / (self.ratios[0] * self.ratios[1] * self.ratios[2])),
+                    @intFromFloat(1.0 / self.ratios[1]),
                 );
 
                 const buffer = self.buffers.get_mut();
                 buffer.set_size(&cels);
+                self.mode_line.set_row(cels.y);
             }
         }
 
         pub fn update(self: *Self) !void {
             const buffer = self.buffers.get();
 
-            try self.painter.update(buffer);
+            try self.painter.update(buffer, &self.mode_line);
             try self.painter.draw();
 
             self.handle.update_surface();
@@ -148,9 +164,22 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn key_input(self: *Self, key_string: []const u8) !void {
-            // const hash = util.hash_key(key_string[0..key_string_len]);
-            _ = self;
-            std.debug.print("recieved string of key pressed: {s}\n", .{key_string});
+            if (key_string.len == 1) {
+                if (self.mode == .Normal) {
+                    try self.buffers.get_mut().insert_string(key_string);
+                } else {
+                    try self.mode_line.insert_string(key_string);
+                }
+            } else {
+                const window_command = try self.commands.get(0);
+
+                if (!window_command.execute_key(key_string)) {
+                    const command_handler = if (self.mode == .Normal) try self.commands.get(1) else try self.commands.get(2);
+                    if (!command_handler.execute_key(key_string)) return;
+                }
+            }
+
+            try self.update();
         }
 
         pub fn key_up(self: *Self) void {
@@ -160,10 +189,49 @@ pub fn Core(Backend: type) type {
         pub fn deinit(self: *Self) void {
            self.buffers.deinit();
            self.mode_line.deinit();
-           self.command_line.deinit();
            self.handle.deinit();
+
+           for (self.commands.elements()) |c| {
+               c.deinit();
+           }
 
            self.allocator.destroy(self);
         }
+
+        fn commands_handle() []const Fn {
+            return &[_]Fn {
+                Fn {
+                    .hash = util.hash_key("Ret"),
+                    .f = enter,
+                },
+                Fn {
+                    .hash = util.hash_key("A-x"),
+                    .f = command_mode,
+                },
+            };
+        }
+
+        fn enter(ptr: *anyopaque) !void {
+            const self: *Self = @ptrCast(@alignCast(ptr));
+
+            if (self.mode == .Command) {
+                self.mode = .Normal;
+                self.mode_line.toggle_cursor();
+            } else {
+                return error.DoNotHandle;
+            }
+        }
+
+        fn command_mode(ptr: *anyopaque) !void {
+            const self: *Self = @ptrCast(@alignCast(ptr));
+
+            if (self.mode == .Command) {
+                return error.AlreadyCommandMode;
+            } else {
+                self.mode_line.toggle_cursor();
+                self.mode = .Command;
+            }
+        }
     };
 }
+

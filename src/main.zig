@@ -29,7 +29,6 @@ pub fn main() !void {
     try window.update();
 
     while (window.state != .Closing) {
-        try window.update();
         window.handle.get_events();
 
         std.time.sleep(1000000 * 20);
