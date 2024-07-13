@@ -1,11 +1,11 @@
 const std = @import("std");
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 
-const math = @import("../math.zig");
-const util = @import("../util.zig");
+const math = @import("math.zig");
+const util = @import("util.zig");
 
-const Window = @import("../window/core.zig").Core(Wayland);
-const VkInstanceDispatch = @import("../vulkan/instance.zig").Dispatch;
+const Window = @import("window/core.zig").Core(Wayland);
+const VkInstanceDispatch = @import("vulkan/instance.zig").Dispatch;
 
 const Allocator = std.mem.Allocator;
 const Instant = std.time.Instant;

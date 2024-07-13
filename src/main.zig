@@ -2,7 +2,7 @@ const std = @import("std");
 
 const TrueType = @import("truetype.zig").TrueType;
 const Window = @import("window/core.zig").Core;
-const Wayland = @import("wayland/core.zig").Wayland;
+const Wayland = @import("wayland.zig").Wayland;
 const Instance = @import("vulkan/instance.zig").Instance;
 const Device = @import("vulkan/device.zig").Device;
 const GraphicsPipeline = @import("vulkan/graphics_pipeline.zig").GraphicsPipeline;

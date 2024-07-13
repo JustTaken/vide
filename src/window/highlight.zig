@@ -1,5 +1,5 @@
 const std = @import("std");
-const util = @import("../collections.zig");
+const util = @import("../util.zig");
 const c = @cImport({
     @cInclude("tree_sitter/api.h");
     @cInclude("dlfcn.h");
