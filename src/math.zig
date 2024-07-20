@@ -13,6 +13,13 @@ pub const Vec2D = struct {
         return self.x == other.x and self.y == other.y;
     }
 
+    pub fn greater(self: *const Vec2D, other: *const Vec2D) bool {
+        if (self.y > other.y) return true;
+        if (self.y == other.y and self.x > other.x) return true;
+
+        return false;
+    }
+
     pub fn move(self: *Vec2D, to: *const Vec2D) void {
         self.x = to.x;
         self.y = to.y;

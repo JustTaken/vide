@@ -397,17 +397,6 @@ pub const Descriptor = struct {
     }
 };
 
-pub const ImageSetConfig = struct {
-    view: c.VkImageView,
-    sampler: c.VkSampler
-};
-
-pub const BufferSetConfig = struct {
-    T: type,
-    buffer: c.VkBuffer,
-    len: u32,
-};
-
 pub const DescriptorSet = struct {
     handle: c.VkDescriptorSet,
 

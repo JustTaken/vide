@@ -167,6 +167,19 @@ pub const Buffer = struct {
     ) !void {
         const coord = self.cursor.coord.sub(&self.rect.coord);
         try f(ptr, coord.x, coord.y);
+
+        // if (!self.selection.active) return;
+        // const start = if (self.cursor.coord.greater(&self.selection.cursor.coord)) &self.cursor.coord else &self.selection.cursor.coord;
+        // const end = if (self.cursor.coord.greater(&self.selection.cursor.coord)) &self.selection.cursor.coord else &self.cursor.coord;
+
+        // if (start.y == end.y) {
+        //     for (start.x..end.x) {
+                
+        //     }
+        // }
+
+        // for (start.y..end.y) |i| {
+        // }
     }
 
     pub fn move_cursor(self: *Buffer, to: *const Cursor) void {
@@ -199,6 +212,7 @@ pub const Buffer = struct {
     pub fn commands() []const Fn {
         return &[_]Fn {
             Fn { .f = enter,      .hash = util.hash_key("Ret") },
+            Fn { .f = delete,     .hash = util.hash_key("C-d") },
             Fn { .f = next_line,  .hash = util.hash_key("C-n") },
             Fn { .f = prev_line,  .hash = util.hash_key("C-p") },
             Fn { .f = next_char,  .hash = util.hash_key("C-f") },
@@ -327,6 +341,36 @@ fn line_start(ptr: *anyopaque) !void {
     );
 
     self.move_cursor(&new_cursor);
+}
+
+fn delete(ptr: *anyopaque) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    const start = if (self.cursor.coord.greater(&self.selection.cursor.coord)) &self.cursor.coord else &self.selection.cursor.coord;
+    var end = if (self.cursor.coord.greater(&self.selection.cursor.coord)) self.selection.cursor.coord else self.cursor.coord;
+
+    const start_line = try self.lines.get_mut(start.y);
+
+    if (end.x != self.lines.items[end.y].content.len()) end.x += 1
+    else if (self.lines.len() < end.y + 1) {
+        end.x = 0;
+        end.y += 1;
+    }
+
+    const end_line = self.lines.items[end.y].content.items[end.x..];
+    start_line.content.items.len = start.x;
+
+    for (end_line) |char| {
+        try start_line.content.push(char);
+    }
+
+    if (start.y == end.y) return;
+
+    for (start.y..end.y) |i| {
+        self.lines.items[i + 1].deinit();
+    }
+
+    util.copy(Line, self.lines.items[end.y + 1..], self.lines.items[start.y + 1..]);
 }
 
 // fn enter(core: *Wayland) !void {

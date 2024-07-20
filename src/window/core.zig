@@ -51,20 +51,6 @@ pub fn Core(Backend: type) type {
         ratios: [3]f32,
         allocator: Allocator,
 
-    // update: bool,
-
-
-
-
-    // key_delay: u64,
-    // key_rate: u64,
-
-    // last_fetch_delay: Instant,
-    // last_fetch_rate: Instant,
-
-
-    // last_fn: ?*const fn(*Core) anyerror!void,
-
         const Self = @This();
 
         pub fn init(
