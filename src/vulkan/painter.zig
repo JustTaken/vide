@@ -16,7 +16,7 @@ const CommandPool = @import("command_pool.zig").CommandPool;
 const Font = @import("../truetype.zig").TrueType;
 
 const WindowBuffer = @import("../window/buffer.zig").Buffer;
-const ModeLine = @import("../window/mode_line.zig").ModeLine;
+const CommandLine = @import("../window/command_line.zig").CommandLine;
 const ResizeListener = @import("../window/core.zig").ResizeListener;
 
 const Allocator = std.mem.Allocator;
@@ -82,6 +82,7 @@ pub const Painter = struct {
                 c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 10,
                 device,
+                command_pool,
             );
         }
 
@@ -104,6 +105,7 @@ pub const Painter = struct {
                     c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                     10,
                     device,
+                    command_pool,
                 );
             }
         }
@@ -158,7 +160,6 @@ pub const Painter = struct {
 
         try self.vertices[code + 1].push(
             .{ j, i, 255, 255, 255 },
-            self.swapchain.device,
         );
     }
 
@@ -168,25 +169,23 @@ pub const Painter = struct {
 
         try self.vertices[0].push(
             .{ j, i, 255, 255, 255 },
-            self.swapchain.device,
         );
     }
 
-    pub fn update(self: *Painter, buffer: *const WindowBuffer, mode_line: *const ModeLine) !void {
+    pub fn update(self: *Painter, buffer: *const WindowBuffer, command_line: *const CommandLine) !void {
         for (self.vertices) |*v| {
             v.reset();
         }
 
         try buffer.char_iter(Painter, self, on_char);
         try buffer.back_iter(Painter, self, on_back);
-        try mode_line.char_iter(Painter, self, on_char);
-        try mode_line.cursor_back(Painter, self, on_back);
+        try command_line.char_iter(Painter, self, on_char);
+        try command_line.cursor_back(Painter, self, on_back);
     }
 
     pub fn draw(self: *const Painter) !void {
         if (!self.swapchain.valid) return error.InvalidSwapchain;
 
-        const start = try std.time.Instant.now();
         const index = try self.swapchain.image_index();
         const device = self.swapchain.device;
 
@@ -217,9 +216,6 @@ pub const Painter = struct {
         };
 
         try check(device.dispatch.vkQueuePresentKHR(device.queues[1], &present_info));
-
-        const end = try std.time.Instant.now();
-        std.debug.print("time for draw frame: {} ns\n", .{end.since(start)});
     }
 
     fn record_draw(self: *const Painter, index: u32) !void {
@@ -337,7 +333,7 @@ pub const Painter = struct {
         self.index.deinit(device);
 
         for (self.vertices) |v| {
-            v.deinit(device);
+            v.deinit();
         }
 
         self.allocator.free(self.vertices);

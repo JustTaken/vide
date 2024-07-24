@@ -45,14 +45,12 @@ pub fn parse(i: u32, buffer: []u8) u32 {
 
 pub fn hash(string: []const u8) u32 {
     var h: u32 = 0;
-    const len: u32 = @intCast(string.len);
 
-    for (0..len) |i| {
-        const index: u32 = @intCast(i);
-        h += string[i] + index;
+    for (0..string.len) |i| {
+        h += string[i];
     }
 
-    return h * len;
+    return h;
 }
 
 pub fn assert(b: bool) error { False }!void {
@@ -60,10 +58,12 @@ pub fn assert(b: bool) error { False }!void {
 }
 
 pub fn hash_key(string: []const u8) u32 {
-    var h: u32 = 0;
+    var h: usize = 0;
     for (0..string.len) |i| {
-        h += string[i];
+        h += string[i] * i;
     }
 
-    return h;
+    h *= string.len;
+
+    return @intCast(h);
 }

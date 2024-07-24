@@ -83,11 +83,15 @@ pub const Buffer = struct {
 pub fn Vec(T: type) type {
     return struct {
         buffer: Buffer,
+
         elements: []T,
         capacity: u32,
 
         usage: u32,
         properties: u32,
+
+        device: *const Device,
+        command_pool: *const CommandPool,
 
         const Self = @This();
 
@@ -95,7 +99,8 @@ pub fn Vec(T: type) type {
             usage: u32,
             properties: u32,
             capacity: u32, 
-            device: *const Device
+            device: *const Device,
+            command_pool: *const CommandPool,
         ) !Self {
             var vec: Self = undefined;
 
@@ -114,11 +119,13 @@ pub fn Vec(T: type) type {
 
             vec.usage = usage;
             vec.properties = properties;
+            vec.device = device;
+            vec.command_pool = command_pool;
 
             return vec;
         }
 
-        pub fn push(self: *Self, item: T, device: *const Device) !void {
+        pub fn push(self: *Self, item: T) !void {
             const count = self.len();
 
             if (self.capacity <= count) {
@@ -128,14 +135,15 @@ pub fn Vec(T: type) type {
                     new_len,
                     self.usage,
                     self.properties,
-                    device,
+                    self.device,
                 );
 
                 var new: []T = undefined;
-                try check(device.dispatch.vkMapMemory(device.handle, buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&new)));
+                try check(self.device.dispatch.vkMapMemory(self.device.handle, buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&new)));
 
                 util.copy(T, self.elements, new);
-                self.deinit(device);
+
+                self.deinit();
 
                 self.buffer = buffer;
                 self.elements.ptr = new.ptr;
@@ -154,8 +162,8 @@ pub fn Vec(T: type) type {
             return @intCast(self.elements.len);
         }
 
-        pub fn deinit(self: *const Self, device: *const Device) void {
-            self.buffer.deinit(device);
+        pub fn deinit(self: *const Self) void {
+            self.buffer.deinit(self.device);
         }
     };
 }

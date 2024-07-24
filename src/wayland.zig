@@ -625,8 +625,6 @@ pub fn ascci(u: u32) ![2][]const u8 {
         52 => .{ ".", ">" },
         53 => .{ "/", "?" },
 
-        57 => .{ " ", " " },
-
         else => return error.NotAscci,
     };
 }
@@ -637,6 +635,7 @@ pub fn special(key: u32) ![]const u8 {
         14 => "Bsp",
         15 => "Tab",
         28 => "Ret",
+        57 => "Spc",
         else => return error.NotSpecial,
     };
 }

@@ -1,5 +1,6 @@
 const std = @import("std");
-const copy = @import("util.zig").copy;
+const util = @import("util.zig");
+const copy = util.copy;
 
 const Allocator = std.mem.Allocator;
 
@@ -91,7 +92,7 @@ pub fn Vec(T: type) type {
 
                 self.capacity = new_len;
             } else {
-                self.items.len = count;
+                self.items.len = count + 1;
                 const dif = count - index;
 
                 for (0..dif) |i| {
@@ -203,6 +204,11 @@ pub fn Cursor(T: type) type {
             };
         }
 
+        pub fn set(self: *Self, index: usize) !void {
+            if (self.elements.len() <= index) return error.NoSuchIndex;
+            self.index = @intCast(index);
+        }
+
         pub fn get(self: *const Self) *const T {
             return self.elements.get(self.index) catch unreachable;
         }
@@ -250,6 +256,62 @@ pub fn Iter(T: type) type {
 
         pub fn reset(self: *Self) void {
             self.next = 0;
+        }
+    };
+}
+
+pub fn HashSet(T: type) type {
+    return struct {
+        items: []T,
+        ocupation: []bool,
+        len: u32,
+        allocator: Allocator,
+
+        const Self = @This();
+        pub fn init(capacity: usize, allocator: Allocator) !Self {
+            return Self {
+                .items = allocator.alloc(T, capacity) catch return error.AllocationFail,
+                .ocupation = allocator.alloc(bool, capacity) catch return error.AllocationFail,
+                .len = 0,
+                .allocator = allocator,
+            };
+        }
+
+        pub fn push(self: *Self, item: T) !void {
+            const len: u32 = @intCast(self.items.len);
+            if (self.len >= len) return error.OutOfLenght;
+
+            const hash = item.hash();
+            var index = hash % len;
+
+            while (self.ocupation[index]) {
+                index = (index + 1) % len;
+            }
+
+            self.len += 1;
+            self.ocupation[index] = true;
+            self.items[index] = item;
+        }
+
+        pub fn get(self: *const Self, item: T) !*const T {
+            const hash = item.hash();
+            const len: u32 = @intCast(self.items.len);
+
+            var index: u32 = hash % len;
+            var count: u32 = 0;
+
+            while (self.ocupation[index] or count >= len) {
+                if (self.items[index].eql(&item)) return &self.items[index];
+                index = (index + 1) % len;
+                count += 1;
+            }
+
+            return error.NotFound;
+        }
+
+        pub fn deinit(self: *const Self) void {
+            self.allocator.free(self.items);
+            self.allocator.free(self.ocupation);
         }
     };
 }
@@ -378,4 +440,34 @@ test "take iter" {
     if (result) |r| {
         try expect(r.* == 60);
     }
+}
+
+const Test = struct {
+    content: []const u8,
+
+    fn hash(self: *const Test) u32 {
+        return util.hash(self.content);
+    }
+
+    fn eql(self: *const Test, other: *const Test) bool {
+        return std.mem.eql(u8, self.content, other.content);
+    }
+};
+
+test "hash map" {
+    var set = try HashSet(Test).init(20, std.testing.allocator);
+    defer set.deinit();
+
+    try set.push(Test { .content = "maca" } );
+    try set.push(Test { .content = "maconha" });
+    try set.push(Test { .content = "princesa" });
+    try set.push(Test { .content = "ladrao" });
+    try set.push(Test { .content = "programer" });
+    try set.push(Test { .content = "programador" });
+    try set.push(Test { .content = "presidente" });
+
+    const member = try set.get(Test { .content = "programador" });
+
+    try expect(std.mem.eql(u8, member.content, "programador"));
+
 }

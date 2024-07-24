@@ -14,7 +14,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
     const allocator = gpa.allocator();
 
-    const font = try TrueType.init(25, "assets/font/font.ttf", allocator);
+    const font = try TrueType.init(35, "assets/font/font.ttf", allocator);
     const window = try Window(Wayland).init(1920, 1080, font.scale, font.ratio, allocator);
     const instance = try Instance.init(Wayland, &window.handle);
     const device = try Device.init(&instance);
@@ -23,16 +23,22 @@ pub fn main() !void {
     const command_pool = try CommandPool.init(&device, &swapchain, allocator);
     var painter = try Painter.init(&swapchain, &graphics_pipeline, &command_pool, &font, window.size, allocator);
 
-    window.painter = &painter;
+    window.set_painter(&painter);
     try window.add_listener(painter.resize_listener());
     try window.add_listener(swapchain.resize_listener());
-    try window.update();
 
+    var start = try std.time.Instant.now();
     while (window.state != .Closing) {
         window.handle.get_events();
+        try window.update();
 
-        std.time.sleep(1000000 * 20);
+        std.time.sleep(1000000 * 30);
         try swapchain.wait();
+
+        const end = try std.time.Instant.now();
+        std.debug.print("time for draw frame: {} ns\n", .{end.since(start)});
+
+        start = end;
     }
 
     font.deinit();

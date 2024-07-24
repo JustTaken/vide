@@ -14,10 +14,7 @@ pub const Vec2D = struct {
     }
 
     pub fn greater(self: *const Vec2D, other: *const Vec2D) bool {
-        if (self.y > other.y) return true;
-        if (self.y == other.y and self.x > other.x) return true;
-
-        return false;
+        return (self.y > other.y) or (self.y == other.y and self.x >= other.x);
     }
 
     pub fn move(self: *Vec2D, to: *const Vec2D) void {
@@ -30,6 +27,16 @@ pub const Vec2D = struct {
             .x = self.x - other.x,
             .y = self.y - other.y,
         };
+    }
+
+    pub fn max(self: *const Vec2D, other: *const Vec2D) *const Vec2D {
+        if (self.greater(other)) return self;
+        return other;
+    }
+
+    pub fn min(self: *const Vec2D, other: *const Vec2D) *const Vec2D {
+        if (self.greater(other)) return other;
+        return self;
     }
 };
 
@@ -44,11 +51,26 @@ pub const Rect = struct {
         };
     }
 
-    pub fn contains(self: *const Rect, coord: Vec2D) bool {
-        const contain_x = self.coord.x <= coord.x and self.coord.x + self.size.x >= coord.x;
-        const contain_y = self.coord.y <= coord.y and self.coord.y + self.size.y >= coord.y;
+    pub fn reajust(self: *Rect, coord: *const Vec2D) void {
+        if (self.coord.x > coord.x) self.coord.x = coord.x
+        else if (self.coord.x + self.size.x < coord.x + 1) self.coord.x = coord.x - self.size.x + 1;
 
-        return contain_x and contain_y;
+        if (self.coord.y > coord.y) self.coord.y = coord.y
+        else if (self.coord.y + self.size.y < coord.y + 1) self.coord.y = coord.y - self.size.y + 1;
+    }
+
+    pub fn fit(self: *const Rect, coord: *const Vec2D) Vec2D {
+        var vec = coord.*;
+
+        if (self.coord.y > coord.y) {
+            vec.y = self.coord.y;
+            vec.x = 0;
+        } else if (self.coord.y + self.size.y < coord.y + 1) {
+            vec.y = self.coord.y + self.size.y - 1;
+            vec.x = 0;
+        }
+
+        return vec;
     }
 
     pub fn end(self: *const Rect) Vec2D {

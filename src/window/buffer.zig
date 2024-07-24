@@ -4,13 +4,13 @@ const util = @import("../util.zig");
 
 const Allocator = std.mem.Allocator;
 
-const Highlight = @import("highlight.zig").Highlight;
 const Vec = @import("../collections.zig").Vec;
-const Fn = @import("command.zig").FnSub;
+const Fn = @import("command.zig").Fn;
 
 const Rect = math.Rect;
 const Coord = math.Vec2D;
 const Length = math.Vec2D;
+const Cursor = math.Vec2D;
 
 const Line = struct {
     content: Vec(u8),
@@ -20,12 +20,12 @@ const Line = struct {
     const CHAR_COUNT: u32 = 50;
 
     fn init(content: []const u8, allocator: Allocator) !Line {
-        const len: u32 = @intCast(content.len);
+        const content_len: u32 = @intCast(content.len);
 
         var indent: u32 = 0;
-        var vec = try Vec(u8).init(math.max(len, CHAR_COUNT), allocator);
+        var vec = try Vec(u8).init(math.max(content_len, CHAR_COUNT), allocator);
 
-        if (len > 0) {
+        if (content_len > 0) {
             while (content[indent] == ' ') : (indent += 1) {}
             try vec.extend(content);
         }
@@ -37,9 +37,9 @@ const Line = struct {
     }
 
     fn with_indent(content: []const u8, indent: u32, allocator: Allocator) !Line {
-        const len = @as(u32, @intCast(content.len)) + indent;
+        const content_len = @as(u32, @intCast(content.len)) + indent;
 
-        var vec = try Vec(u8).init(math.max(len, CHAR_COUNT), allocator);
+        var vec = try Vec(u8).init(math.max(content_len, CHAR_COUNT), allocator);
         try vec.repeat(' ', indent);
         try vec.extend_insert(content, indent);
 
@@ -53,25 +53,12 @@ const Line = struct {
         try self.content.extend_insert(string, col);
     }
 
+    fn len(self: *const Line) u32 {
+        return self.content.len() - 1;
+    }
+
     fn deinit(self: *const Line) void {
         self.content.deinit();
-    }
-};
-
-const Cursor = struct {
-    coord: Coord,
-    offset: u32,
-
-    fn init(coord: Coord, offset: u32) Cursor {
-        return Cursor {
-            .offset = offset,
-            .coord = coord,
-        };
-    }
-
-    fn move(self: *Cursor, to: *const Cursor) void {
-        self.coord.move(&to.coord);
-        self.offset = to.offset;
     }
 };
 
@@ -89,6 +76,10 @@ const Selection = struct {
     fn move(self: *Selection, to: *const Cursor) void {
         if (!self.active) self.cursor.move(to);
     }
+
+    fn toggle(self: *Selection) void {
+        self.active = !self.active;
+    }
 };
 
 pub const Buffer = struct {
@@ -97,7 +88,6 @@ pub const Buffer = struct {
     rect: Rect,
     cursor: Cursor,
     selection: Selection,
-    highlight: Highlight,
 
     pub fn init(
         name: []const u8,
@@ -127,8 +117,7 @@ pub const Buffer = struct {
             }
         }
 
-        const cursor = Cursor.init(Coord.init(0, 0), 0);
-        const selection = Selection.init(cursor);
+        const cursor = Cursor.init(0, 0);
 
         return Buffer {
             .name = name,
@@ -136,8 +125,7 @@ pub const Buffer = struct {
 
             .rect = Rect.init(Coord.init(0, 0), size),
             .cursor = cursor,
-            .selection = selection,
-            .highlight = undefined,
+            .selection = Selection.init(cursor),
         };
     }
 
@@ -165,21 +153,50 @@ pub const Buffer = struct {
         ptr: *T, 
         f: fn (*T, usize, usize) anyerror!void
     ) !void {
-        const coord = self.cursor.coord.sub(&self.rect.coord);
+        const coord = self.cursor.sub(&self.rect.coord);
         try f(ptr, coord.x, coord.y);
 
-        // if (!self.selection.active) return;
-        // const start = if (self.cursor.coord.greater(&self.selection.cursor.coord)) &self.cursor.coord else &self.selection.cursor.coord;
-        // const end = if (self.cursor.coord.greater(&self.selection.cursor.coord)) &self.selection.cursor.coord else &self.cursor.coord;
+        if (!self.selection.active) return;
 
-        // if (start.y == end.y) {
-        //     for (start.x..end.x) {
-                
-        //     }
-        // }
+        const boundary = blk: { 
+            if (self.cursor.greater(&self.selection.cursor)) {
+                break :blk [_]Coord { self.selection.cursor, self.cursor};
+            } else {
+                const cursor_flag = self.cursor.x >= self.lines.items[self.cursor.y].content.len();
+                const selection_flag = self.selection.cursor.x >= self.lines.items[self.selection.cursor.y].content.len();
 
-        // for (start.y..end.y) |i| {
-        // }
+                const cursor_at_end = self.cursor.y + 1 >= self.lines.len();
+                const selection_at_end = self.selection.cursor.y + 1 >= self.lines.len();
+
+                break :blk [_]Coord {
+                    Coord.init(
+                        if (cursor_flag) if (cursor_at_end) self.cursor.x else 0 else self.cursor.x + 1,
+                        if (cursor_at_end or !cursor_flag) self.cursor.y else self.cursor.y + 1,
+                    ),
+                    Coord.init(
+                        if (selection_flag) if (selection_at_end) self.selection.cursor.x else 0 else self.selection.cursor.x + 1,
+                        if (selection_at_end or !selection_flag) self.selection.cursor.y else self.selection.cursor.y + 1,
+                    )
+                };
+            }
+        };
+
+        const start = boundary[0].max(&self.rect.coord).sub(&self.rect.coord);
+        const end = boundary[1].sub(&self.rect.coord).min(&Coord.init(self.rect.coord.x + self.rect.size.x, self.rect.coord.y + self.rect.size.y));
+
+        if (start.y == end.y) {
+            for (start.x..end.x) |i| {
+                try f(ptr, i, start.y);
+            }
+        } else {
+            for (start.x..math.min(self.lines.items[self.rect.coord.y + start.y].content.len(), self.rect.coord.x + self.rect.size.x + 1)) |i| try f(ptr, i, start.y);
+            for (0..math.min(self.lines.items[self.rect.coord.y + end.y].content.len(), end.x)) |i| try f(ptr, i, end.y);
+            for (start.y + 1..end.y) |i| {
+                for (0..self.lines.items[self.rect.coord.y + i].content.len()) |j| {
+                    try f(ptr, j, i);
+                }
+            }
+        }
     }
 
     pub fn move_cursor(self: *Buffer, to: *const Cursor) void {
@@ -187,38 +204,35 @@ pub const Buffer = struct {
         self.selection.move(to);
     }
 
-    pub fn set_language(self: *Buffer, name: []const u8, allocator: Allocator) void {
-        self.highlight = Highlight.init(name, self, allocator) catch return;
-    }
-
     pub fn set_size(self: *Buffer, size: *const Length) void {
         self.rect.size.move(size);
     }
 
     pub fn insert_string(self: *Buffer, string: []const u8) !void {
-        const cursor = self.cursor;
         const len: u32 = @intCast(string.len);
-        const line = try self.lines.get_mut(cursor.coord.y);
+        const line = try self.lines.get_mut(self.cursor.y);
 
-        try line.insert_string(string, cursor.coord.x);
-        self.move_cursor(&
-            Cursor.init(
-                Coord.init(cursor.coord.x + len, cursor.coord.y), 
-                cursor.offset + len
-            )
-        );
+        try line.insert_string(string, self.cursor.x);
+
+        self.selection.active = false;
+        self.move_cursor(&Cursor.init(self.cursor.x + len, self.cursor.y));
+        self.rect.reajust(&self.cursor);
     }
 
     pub fn commands() []const Fn {
         return &[_]Fn {
-            Fn { .f = enter,      .hash = util.hash_key("Ret") },
-            Fn { .f = delete,     .hash = util.hash_key("C-d") },
-            Fn { .f = next_line,  .hash = util.hash_key("C-n") },
-            Fn { .f = prev_line,  .hash = util.hash_key("C-p") },
-            Fn { .f = next_char,  .hash = util.hash_key("C-f") },
-            Fn { .f = prev_char,  .hash = util.hash_key("C-b") },
-            Fn { .f = line_end,   .hash = util.hash_key("C-e") },
-            Fn { .f = line_start, .hash = util.hash_key("C-a") },
+            Fn { .f = enter,       .string = "Ret" },
+            Fn { .f = delete,      .string = "C-d" },
+            Fn { .f = next_line,   .string = "C-n" },
+            Fn { .f = prev_line,   .string = "C-p" },
+            Fn { .f = next_char,   .string = "C-f" },
+            Fn { .f = prev_char,   .string = "C-b" },
+            Fn { .f = line_end,    .string = "C-e" },
+            Fn { .f = line_start,  .string = "C-a" },
+            Fn { .f = space,       .string = "Spc" },
+            Fn { .f = scroll_up,   .string = "A-v" },
+            Fn { .f = scroll_down, .string = "C-v" },
+            Fn { .f = selection,   .string = "C-Spc" },
         };
     }
 
@@ -227,65 +241,64 @@ pub const Buffer = struct {
     }
 };
 
-fn enter(ptr: *anyopaque) !void {
+fn enter(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    const cursor = self.cursor;
-    const line = try self.lines.get_mut(cursor.coord.y);
-    const content = line.content.truncate(cursor.coord.x);
+    const line = try self.lines.get_mut(self.cursor.y);
+    const content = line.content.truncate(self.cursor.x);
 
-    const new_cursor = Cursor.init(
-        Coord.init(line.indent, cursor.coord.y + 1), 
-        cursor.offset + line.indent + 1
-    );
+    const new_cursor = Cursor.init(line.indent, self.cursor.y + 1);
 
     try self.lines.insert(
         try Line.with_indent(content, line.indent, self.lines.allocator),
-        new_cursor.coord.y,
+        new_cursor.y,
     );
 
-    try self.lines.items[cursor.coord.y].content.push('\n');
-    self.cursor.move(&new_cursor);
-}
+    try self.lines.items[self.cursor.y].content.push('\n');
 
-fn next_line(ptr: *anyopaque) !void {
-    const self: *Buffer = @ptrCast(@alignCast(ptr));
-
-    const y = self.cursor.coord.y + 1;
-    const line = try self.lines.get(y);
-    const current_line = try self.lines.get(self.cursor.coord.y);
-
-    const x = math.min(self.cursor.coord.x, line.content.len() - 1);
-    const offset = current_line.content.len() + x - self.cursor.coord.x;
-    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset + offset);
-
+    self.selection.active = false;
+    self.rect.reajust(&new_cursor);
     self.move_cursor(&new_cursor);
 }
 
-fn prev_line(ptr: *anyopaque) !void {
+fn next_line(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
-    if (self.cursor.coord.y == 0) return error.NoPrevLine;
 
-    const y = self.cursor.coord.y - 1;
+    const y = self.cursor.y + 1;
     const line = try self.lines.get(y);
 
-    const len = line.content.len() - 1;
-    const x = math.min(self.cursor.coord.x, len);
-    const offset = self.cursor.coord.x + 1 + len - x;
-    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset - offset);
+    const x = math.min(self.cursor.x, line.len());
+    const new_cursor = Cursor.init(x, y);
 
+    self.rect.reajust(&new_cursor);
     self.move_cursor(&new_cursor);
 }
 
-fn next_char(ptr: *anyopaque) !void {
+fn prev_line(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    var line = try self.lines.get(self.cursor.coord.y);
+    try util.assert(self.cursor.y > 0);
 
-    var y = self.cursor.coord.y;
-    var x = self.cursor.coord.x;
+    const y = self.cursor.y - 1;
+    const line = try self.lines.get(y);
 
-    if (x + 1 >= line.content.len()) {
+    const len = line.len();
+    const x = math.min(self.cursor.x, len);
+    const new_cursor = Cursor.init(x, y);
+
+    self.rect.reajust(&new_cursor);
+    self.move_cursor(&new_cursor);
+}
+
+fn next_char(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    var line = try self.lines.get(self.cursor.y);
+
+    var y = self.cursor.y;
+    var x = self.cursor.x;
+
+    if (x == line.len()) {
         y += 1;
         x = 0;
         try util.assert(y < self.lines.len());
@@ -293,15 +306,17 @@ fn next_char(ptr: *anyopaque) !void {
         x += 1;
     }
 
-    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset + 1);
+    const new_cursor = Cursor.init(x, y);
+
+    self.rect.reajust(&new_cursor);
     self.move_cursor(&new_cursor);
 }
 
-fn prev_char(ptr: *anyopaque) !void {
+fn prev_char(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    var y = self.cursor.coord.y;
-    var x = self.cursor.coord.x;
+    var y = self.cursor.y;
+    var x = self.cursor.x;
 
     if (x < 1) {
         try util.assert(y > 0);
@@ -313,46 +328,45 @@ fn prev_char(ptr: *anyopaque) !void {
         x -= 1;
     }
 
-    const new_cursor = Cursor.init(Coord.init(x, y), self.cursor.offset - 1);
+    const new_cursor = Coord.init(x, y);
+    self.rect.reajust(&new_cursor);
     self.move_cursor(&new_cursor);
 }
 
-fn line_end(ptr: *anyopaque) !void {
+fn line_end(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    const line = try self.lines.get(self.cursor.coord.y);
-    const len = line.content.len() - 1;
+    const line = try self.lines.get(self.cursor.y);
+    const len = line.len();
 
-    const new_cursor = Cursor.init(
-        Coord.init(len, self.cursor.coord.y), 
-        self.cursor.offset + len - self.cursor.coord.x
-    );
+    const new_cursor = Cursor.init(len, self.cursor.y);
 
+    self.rect.reajust(&new_cursor);
     self.move_cursor(&new_cursor);
 }
 
-fn line_start(ptr: *anyopaque) !void {
+fn line_start(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    try util.assert(self.cursor.coord.x > 0);
-    const new_cursor = Cursor.init(
-        Coord.init(0, self.cursor.coord.y), 
-        self.cursor.offset - self.cursor.coord.x
-    );
+    try util.assert(self.cursor.x > 0);
+    const new_cursor = Cursor.init(0, self.cursor.y);
 
+    self.rect.reajust(&new_cursor);
     self.move_cursor(&new_cursor);
 }
 
-fn delete(ptr: *anyopaque) !void {
+fn delete(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    const start = if (self.cursor.coord.greater(&self.selection.cursor.coord)) &self.cursor.coord else &self.selection.cursor.coord;
-    var end = if (self.cursor.coord.greater(&self.selection.cursor.coord)) self.selection.cursor.coord else self.cursor.coord;
+    const start = if (self.cursor.greater(&self.selection.cursor)) self.selection.cursor else self.cursor;
+    var end = if (self.cursor.greater(&self.selection.cursor)) self.cursor else self.selection.cursor;
 
     const start_line = try self.lines.get_mut(start.y);
 
-    if (end.x != self.lines.items[end.y].content.len()) end.x += 1
-    else if (self.lines.len() < end.y + 1) {
+    if (end.x < self.lines.items[end.y].len()) {
+        end.x += 1;
+    } else if (self.lines.len() > end.y + 1) {
+
         end.x = 0;
         end.y += 1;
     }
@@ -364,6 +378,11 @@ fn delete(ptr: *anyopaque) !void {
         try start_line.content.push(char);
     }
 
+    self.selection.active = false;
+
+    self.rect.reajust(&start);
+    self.move_cursor(&start);
+
     if (start.y == end.y) return;
 
     for (start.y..end.y) |i| {
@@ -371,6 +390,42 @@ fn delete(ptr: *anyopaque) !void {
     }
 
     util.copy(Line, self.lines.items[end.y + 1..], self.lines.items[start.y + 1..]);
+    self.lines.items.len -= end.y - start.y;
+
+}
+
+fn selection(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    self.selection.toggle();
+    self.move_cursor(&self.cursor);
+}
+
+fn scroll_down(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+    if (self.rect.coord.y + 1 >= self.lines.len()) return error.NoMoreSpace;
+
+    const size = math.min(self.rect.coord.y + self.rect.size.y / 2, self.lines.len() - 1);
+
+    self.rect.coord.move(&Coord.init(0, size));
+    self.move_cursor(&self.rect.fit(&self.cursor));
+}
+
+fn scroll_up(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+    if (self.rect.coord.y == 0) return error.NoMoreSpace;
+
+    const half = math.min(self.rect.size.y / 2, self.rect.coord.y);
+    const size = self.rect.coord.y - half;
+
+    self.rect.coord.move(&Coord.init(0, size));
+    self.move_cursor(&self.rect.fit(&self.cursor));
+}
+
+fn space(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    try self.insert_string(" ");
 }
 
 // fn enter(core: *Wayland) !void {

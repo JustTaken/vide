@@ -14,7 +14,6 @@ pub fn build(builder: *Builder) void {
     main.linkSystemLibrary("dl");
     main.linkSystemLibrary("wayland-client");
     main.linkSystemLibrary("freetype");
-    main.linkSystemLibrary("tree-sitter");
 
     scan_wayland_xml(builder, "private-code", "include/xdg-shell.c");
     scan_wayland_xml(builder, "client-header", "include/xdg-shell.h");
