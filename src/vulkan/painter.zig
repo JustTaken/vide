@@ -18,22 +18,26 @@ const Font = @import("../truetype.zig").TrueType;
 const WindowBuffer = @import("../window/buffer.zig").Buffer;
 const CommandLine = @import("../window/command_line.zig").CommandLine;
 const ResizeListener = @import("../window/core.zig").ResizeListener;
+const Size = @import("../math.zig").Vec2D;
 
 const Allocator = std.mem.Allocator;
 
-const Size = @import("../math.zig").Vec2D;
+const Vertex = [4]u32;
 
 pub const Painter = struct {
     swapchain: *Swapchain,
     graphics_pipeline: *const GraphicsPipeline,
     command_pool: *const CommandPool,
 
+    size: Size,
+
     index: Buffer,
     uniform: Uniform,
 
-    vertices: []Vec([5]u32),
+    vertex_offsets: []u64,
+    data: Buffer,
+    dst: []Vertex,
 
-    coords: Buffer,
     font_atlas: Texture,
     general_texture: Texture,
 
@@ -55,8 +59,20 @@ pub const Painter = struct {
         painter.swapchain = swapchain;
 
         const scale = math.divide(size.y, size.x);
+        const rows: u32 = @intFromFloat(1.0 / font.scale);
+        const cols: u32 = @intFromFloat(1.0 / (scale * font.scale * font.ratio));
+        const cols_f: f32 = @floatFromInt(cols);
 
-        const uniform_data = [_]f32 { scale, font.scale, font.ratio };
+        const uniform_data = [_]f32 {
+            scale,
+            font.scale,
+            font.ratio,
+            font.width(),
+            font.height(),
+            font.glyph_width(),
+            font.glyph_height(),
+            cols_f, 11.0, 3.0,
+        };
         painter.uniform = try Uniform.init(
             f32,
             &uniform_data,
@@ -65,59 +81,67 @@ pub const Painter = struct {
             device,
         );
 
-        var coords: [CHAR_COUNT + 1][4][2]f32 = undefined;
-        painter.vertices = try allocator.alloc(Vec([5]u32), CHAR_COUNT + 1);
         painter.allocator = allocator;
 
         {
-            coords[0] = .{
-                .{ 0.0, 0.0 },
-                .{ 1.0, 0.0 },
-                .{ 0.0, 1.0 },
-                .{ 1.0, 1.0 },
-            };
+            const capacity = rows * cols;
 
-            painter.vertices[0] = try Vec([5]u32).init(
+            painter.vertex_offsets = try allocator.alloc(u64, capacity);
+
+            painter.size.y = rows;
+            painter.size.x = cols;
+
+            painter.data = try Buffer.init(
+                Vertex,
+                capacity,
                 c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                 c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                10,
                 device,
-                command_pool,
             );
-        }
 
-        {
-            const glyph_width = font.normalized_width();
-            const glyph_height = font.normalized_height();
+            try check(device.dispatch.vkMapMemory(device.handle, painter.data.memory, 0, capacity * @sizeOf(Vertex), 0, @ptrCast(&painter.dst)));
+            painter.dst.len = capacity;
 
-            for (0..CHAR_COUNT) |i| {
-                const offset = font.glyph_normalized_offset(i);
-
-                coords[i + 1] = .{
-                    .{ offset[0], offset[1] },
-                    .{ offset[0] + glyph_width, offset[1] },
-                    .{ offset[0], offset[1] + glyph_height},
-                    .{ offset[0] + glyph_width, offset[1] + glyph_height },
-                };
-
-                painter.vertices[i + 1] = try Vec([5]u32).init(
-                    c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                    c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    10,
-                    device,
-                    command_pool,
-                );
+            for (0..rows) |i| {
+                for (0..cols) |j| {
+                    painter.dst[i * cols + j] = .{ 0, 255, 255, 255 };
+                    painter.vertex_offsets[i * cols + j] = (i * cols + j) * @sizeOf(Vertex);
+                }
             }
         }
 
-        painter.coords = try Buffer.with_data(
-            [4][2]f32,
-            &coords,
-            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            device,
-            command_pool,
-        );
+        // {
+        //     const glyph_width = font.normalized_width();
+        //     const glyph_height = font.normalized_height();
+
+        //     for (0..CHAR_COUNT) |i| {
+        //         const offset = font.glyph_normalized_offset(i);
+
+        //         coords[i + 1] = .{
+        //             .{ offset[0], offset[1] },
+        //             .{ offset[0] + glyph_width, offset[1] },
+        //             .{ offset[0], offset[1] + glyph_height},
+        //             .{ offset[0] + glyph_width, offset[1] + glyph_height },
+        //         };
+
+        //         painter.vertices[i + 1] = try Vec([5]u32).init(
+        //             c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        //             c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        //             10,
+        //             device,
+        //             command_pool,
+        //         );
+        //     }
+        // }
+
+        // painter.coords = try Buffer.with_data(
+        //     [4][2]f32,
+        //     &coords,
+        //     c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        //     c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        //     device,
+        //     command_pool,
+        // );
 
         const indices = [_]u16 { 0, 1, 2, 1, 3, 2 };
         painter.index = try Buffer.with_data(
@@ -152,31 +176,26 @@ pub const Painter = struct {
     }
 
     fn on_char(self: *Painter, char: u8, col: usize, row: usize) !void {
-        if (char == ' ' or char == '\n') return;
-        const code = char - 32;
+        // if (char == ' ' or char == '\n') return;
+        const code = if (char == '\n') 0 else char - 32;
 
-        const j: u32 = @intCast(col);
         const i: u32 = @intCast(row);
+        const j: u32 = @intCast(col);
 
-        try self.vertices[code + 1].push(
-            .{ j, i, 255, 255, 255 },
-        );
+        self.dst[i * self.size.x + j] = .{ code, 255, 255, 255 };
     }
 
     fn on_back(self: *Painter, col: usize, row: usize) !void {
         const j: u32 = @intCast(col);
         const i: u32 = @intCast(row);
+        _ = self;
+        _ = i;
+        _ = j;
 
-        try self.vertices[0].push(
-            .{ j, i, 255, 255, 255 },
-        );
+        // self.dst = .{ 0, j, i, 255, 255, 255 };
     }
 
     pub fn update(self: *Painter, buffer: *const WindowBuffer, command_line: *const CommandLine) !void {
-        for (self.vertices) |*v| {
-            v.reset();
-        }
-
         try buffer.char_iter(Painter, self, on_char);
         try buffer.back_iter(Painter, self, on_back);
         try command_line.char_iter(Painter, self, on_char);
@@ -283,28 +302,27 @@ pub const Painter = struct {
         device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 0, 1, &.{ self.uniform.set.handle }, 0, &0);
 
         {
-            const vertex_offsets = &[_]u64 { 0, 0 };
-            const vertex_buffers = &[_]c.VkBuffer { self.coords.handle, self.vertices[0].buffer.handle };
+            // const vertex_buffers = &[_]c.VkBuffer { self.data.handle };
 
-            device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 1, 1, &.{ self.general_texture.set.handle }, 0, &0);
-            device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, vertex_buffers.len, &vertex_buffers[0], &vertex_offsets[0]);
-            device.dispatch.vkCmdDrawIndexed(command_buffer, 6, self.vertices[0].len(), 0, 0, 0);
-        }
-
-        {
             device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 1, 1, &.{ self.font_atlas.set.handle }, 0, &0);
-
-            for (0..CHAR_COUNT) |i| {
-                const len = self.vertices[i + 1].len();
-                if (len == 0) continue;
-
-                const vertex_offsets = &[_]u64 { @sizeOf(f32) * 4 * 2 * (i + 1), 0 };
-                const vertex_buffers = &[_]c.VkBuffer { self.coords.handle, self.vertices[i + 1].buffer.handle };
-
-                device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, vertex_buffers.len, &vertex_buffers[0], &vertex_offsets[0]);
-                device.dispatch.vkCmdDrawIndexed(command_buffer, 6, len, 0, 0, 0);
-            }
+            // device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 1, 1, &.{ self.general_texture.set.handle }, 0, &0);
+            device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, 1, &self.data.handle, &self.vertex_offsets[0]);
+            device.dispatch.vkCmdDrawIndexed(command_buffer, 6, @intCast(self.dst.len), 0, 0, 0);
         }
+
+        // {
+
+        //     for (0..CHAR_COUNT) |i| {
+        //         const len = self.vertices[i + 1].len();
+        //         if (len == 0) continue;
+
+        //         const vertex_offsets = &[_]u64 { @sizeOf(f32) * 4 * 2 * (i + 1), 0 };
+        //         const vertex_buffers = &[_]c.VkBuffer { self.coords.handle, self.vertices[i + 1].buffer.handle };
+
+        //         device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, vertex_buffers.len, &vertex_buffers[0], &vertex_offsets[0]);
+        //         device.dispatch.vkCmdDrawIndexed(command_buffer, 6, len, 0, 0, 0);
+        //     }
+        // }
 
         device.dispatch.vkCmdEndRenderPass(command_buffer);
         try check(device.dispatch.vkEndCommandBuffer(command_buffer));
@@ -314,6 +332,8 @@ pub const Painter = struct {
         const self: *Painter = @ptrCast(@alignCast(ptr));
 
         self.uniform.dst[0] = math.divide(size.y, size.x);
+        self.size.x = @intFromFloat(1.0 / (self.uniform.dst[0] * self.uniform.dst[1] * self.uniform.dst[2]));
+        self.uniform.dst[7] = @floatFromInt(self.size.x);
     }
 
     pub fn resize_listener(self: *Painter) ResizeListener {
@@ -329,13 +349,9 @@ pub const Painter = struct {
         self.general_texture.deinit(device);
 
         self.uniform.deinit(device);
-        self.coords.deinit(device);
+        self.data.deinit(device);
         self.index.deinit(device);
 
-        for (self.vertices) |v| {
-            v.deinit();
-        }
-
-        self.allocator.free(self.vertices);
+        self.allocator.free(self.vertex_offsets);
     }
 };

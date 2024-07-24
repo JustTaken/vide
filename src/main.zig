@@ -27,18 +27,12 @@ pub fn main() !void {
     try window.add_listener(painter.resize_listener());
     try window.add_listener(swapchain.resize_listener());
 
-    var start = try std.time.Instant.now();
     while (window.state != .Closing) {
         window.handle.get_events();
         try window.update();
 
         std.time.sleep(1000000 * 30);
         try swapchain.wait();
-
-        const end = try std.time.Instant.now();
-        std.debug.print("time for draw frame: {} ns\n", .{end.since(start)});
-
-        start = end;
     }
 
     font.deinit();

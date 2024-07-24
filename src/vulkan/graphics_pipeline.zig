@@ -23,7 +23,7 @@ pub const GraphicsPipeline = struct {
         device: *const Device,
     ) !GraphicsPipeline {
         var graphics_pipeline: GraphicsPipeline = undefined;
-        var buffer: [4096]u8 = undefined;
+        var buffer: [8000]u8 = undefined;
 
         const vert_module = try create_shader_module(device, "zig-out/shader/vert.spv", &buffer);
         defer device.dispatch.vkDestroyShaderModule(device.handle, vert_module, null);
@@ -54,48 +54,47 @@ pub const GraphicsPipeline = struct {
             .dynamicStateCount = dynamic_states.len,
         };
 
-        const coords_binding_description = c.VkVertexInputBindingDescription {
-            .binding = 0,
-            .stride = @sizeOf(f32) * 2,
-            .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
-        };
+        // const coords_binding_description = c.VkVertexInputBindingDescription {
+        //     .binding = 0,
+        //     .stride = @sizeOf(f32) * 2,
+        //     .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
+        // };
 
-        const coords_attribute_description = c.VkVertexInputAttributeDescription {
-            .binding = 0,
-            .location = 0,
-            .format = c.VK_FORMAT_R32G32_SFLOAT,
-            .offset = 0,
-        };
+        // const coords_attribute_description = c.VkVertexInputAttributeDescription {
+        //     .binding = 0,
+        //     .location = 0,
+        //     .format = c.VK_FORMAT_R32G32_SFLOAT,
+        //     .offset = 0,
+        // };
 
-        const position_binding_description = c.VkVertexInputBindingDescription {
-            .binding = 1,
-            .stride = @sizeOf(u32) * 5,
-            .inputRate = c.VK_VERTEX_INPUT_RATE_INSTANCE,
-        };
-
-        const position_attribute_description = c.VkVertexInputAttributeDescription {
-            .binding = 1,
-            .location = 1,
-            .format = c.VK_FORMAT_R32G32_UINT,
-            .offset = 0,
-        };
-
-        const color_attribute_description = c.VkVertexInputAttributeDescription {
-            .binding = 1,
-            .location = 2,
-            .format = c.VK_FORMAT_R32G32B32_UINT,
-            .offset = @sizeOf(u32) * 2,
-        };
 
         const binding_descriptions = &[_]c.VkVertexInputBindingDescription {
-            coords_binding_description,
-            position_binding_description,
+            .{
+                .binding = 0,
+                .stride = @sizeOf(u32) * 4,
+                .inputRate = c.VK_VERTEX_INPUT_RATE_INSTANCE,
+            },
         };
 
         const attribute_descriptions = &[_]c.VkVertexInputAttributeDescription {
-            coords_attribute_description,
-            position_attribute_description,
-            color_attribute_description,
+            .{
+                .binding = 0,
+                .location = 0,
+                .format = c.VK_FORMAT_R32_UINT,
+                .offset = 0,
+            },
+            // .{
+            //     .binding = 0,
+            //     .location = 1,
+            //     .format = c.VK_FORMAT_R32G32_UINT,
+            //     .offset = @sizeOf(u32),
+            // },
+            .{
+                .binding = 0,
+                .location = 1,
+                .format = c.VK_FORMAT_R32G32B32_UINT,
+                .offset = @sizeOf(u32) * 1,
+            },
         };
 
         const input_state_info = c.VkPipelineVertexInputStateCreateInfo {

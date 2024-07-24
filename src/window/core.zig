@@ -127,12 +127,18 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn update(self: *Self) !void {
+            const start = try std.time.Instant.now();
             if (!self.change) return;
+
+
             try self.painter.update(self.buffers.get(), &self.command_line);
             try self.painter.draw();
 
             self.handle.update_surface();
             self.change = false;
+
+            const end = try std.time.Instant.now();
+            std.debug.print("time for draw frame: {} ns\n", .{end.since(start)});
         }
 
         pub fn add_listener(self: *Self, listener: ResizeListener) !void {
