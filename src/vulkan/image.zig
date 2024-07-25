@@ -57,7 +57,7 @@ pub const Texture = struct {
 
         try copy_data_to_image(texture.image, data, size, device, command_pool);
 
-        texture.sampler = try sampler_init(c.VK_SAMPLER_ADDRESS_MODE_REPEAT, device);
+        texture.sampler = try sampler_init(c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, device);
         texture.set = try graphics_pipeline.descriptors[1].get_set(device);
         texture.set.update_image(texture.view, texture.sampler, 0, device);
         texture.size = size;

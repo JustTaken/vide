@@ -54,20 +54,6 @@ pub const GraphicsPipeline = struct {
             .dynamicStateCount = dynamic_states.len,
         };
 
-        // const coords_binding_description = c.VkVertexInputBindingDescription {
-        //     .binding = 0,
-        //     .stride = @sizeOf(f32) * 2,
-        //     .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
-        // };
-
-        // const coords_attribute_description = c.VkVertexInputAttributeDescription {
-        //     .binding = 0,
-        //     .location = 0,
-        //     .format = c.VK_FORMAT_R32G32_SFLOAT,
-        //     .offset = 0,
-        // };
-
-
         const binding_descriptions = &[_]c.VkVertexInputBindingDescription {
             .{
                 .binding = 0,
@@ -83,12 +69,6 @@ pub const GraphicsPipeline = struct {
                 .format = c.VK_FORMAT_R32_UINT,
                 .offset = 0,
             },
-            // .{
-            //     .binding = 0,
-            //     .location = 1,
-            //     .format = c.VK_FORMAT_R32G32_UINT,
-            //     .offset = @sizeOf(u32),
-            // },
             .{
                 .binding = 0,
                 .location = 1,

@@ -79,10 +79,10 @@ pub const CommandLine = struct {
         self: *const CommandLine,
         T: type,
         ptr: *T,
-        f: fn(*T, usize, usize) anyerror!void
+        f: fn(*T, u8, usize, usize) anyerror!void
     ) !void {
         if (self.cursor) |cursor| {
-            try f(ptr, cursor, self.row);
+            try f(ptr, 0, cursor, self.row);
 
             if (self.selection) |selection| {
 
@@ -91,7 +91,7 @@ pub const CommandLine = struct {
                 const start = if (selection < cursor) selection else cursor + 1;
                 const end = if(selection > cursor) selection + 1 else cursor;
 
-                for (start..end) |i| try f(ptr, i, self.row);
+                for (start..end) |i| try f(ptr, 0, i, self.row);
             }
         }
     }

@@ -163,8 +163,6 @@ pub const Swapchain = struct {
     }
 
     pub fn image_index(self: *Swapchain) !u32 {
-        try self.wait();
-
         var index: u32 = 0;
         var result = self.device.dispatch.vkAcquireNextImageKHR(self.device.handle, self.handle, 0xFFFFFF, self.image_available, null, &index);
 

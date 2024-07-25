@@ -133,13 +133,11 @@ pub fn Vec(T: type) type {
         }
 
         pub fn range(self: *const Self, start: u32, end: u32) Error![]const T {
-            var e = end + 1;
-
             if (start > end) return Error.OutOfLength;
-            if (start >= self.items.len) return Error.OutOfLength;
-            if (e > self.items.len) e = self.len();
+            if (start >= self.items.len) return &.{};
+            if (end > self.items.len) return self.items[start..];
 
-            return self.items[start..e];
+            return self.items[start..end];
         }
 
         pub fn truncate(self: *Self, index: u32) []const T {
@@ -148,6 +146,10 @@ pub fn Vec(T: type) type {
 
             self.items.len = index;
             return items;
+        }
+
+        pub fn clear(self: *Self) void {
+            self.items.len = 0;
         }
 
         pub fn get(self: *const Self, index: u32) !*const T {

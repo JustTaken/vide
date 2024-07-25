@@ -182,6 +182,22 @@ pub const TrueType = struct {
             bitmap.append(&glyph.bitmap, insert_offset);
             bitmap.append_offset(glyph.offset, index);
         }
+         {
+            const i = GLYPH_COUNT;
+            const line: u32 = i / COLS;
+            const col: u32 = i - line * COLS;
+
+            const offset = Offset.init(
+                col * (face.glyph_size.x + PADDING),
+                line * (face.glyph_size.y + PADDING),
+            );
+
+            for (0..face.glyph_size.y + 2) |y| {
+                for (0..face.glyph_size.x + 2) |x| {
+                    bitmap.handle[(y + offset.y - 1) * bitmap.size.x + offset.x + x - 1] = 255;
+                }
+            }
+         }
 
         return TrueType {
             .bitmap = bitmap,

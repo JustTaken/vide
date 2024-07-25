@@ -50,6 +50,7 @@ pub fn Core(Backend: type) type {
         size: Size,
         ratios: [3]f32,
         change: bool,
+        profiler: u64,
         allocator: Allocator,
 
         const Self = @This();
@@ -80,7 +81,7 @@ pub fn Core(Backend: type) type {
             );
 
             self.buffers = try Cursor(Buffer).init(5, allocator);
-            try self.buffers.push(try Buffer.init("scratch", "This is a scratch buffer\n", cels, allocator));
+            try self.buffers.push(try Buffer.init("scratch", "", cels, allocator));
 
             const buffer = self.buffers.get_mut();
             try self.commands.push(try CommandHandler.init(buffer, Buffer.commands(), &.{}, allocator));
@@ -91,6 +92,7 @@ pub fn Core(Backend: type) type {
             self.state = State.Running;
             self.mode = .Normal;
             self.change = true;
+            self.profiler = 0;
             self.allocator = allocator;
 
             return self;
@@ -131,14 +133,14 @@ pub fn Core(Backend: type) type {
             if (!self.change) return;
 
 
-            try self.painter.update(self.buffers.get(), &self.command_line);
+            try self.painter.update(self.buffers.get_mut(), &self.command_line);
             try self.painter.draw();
 
             self.handle.update_surface();
             self.change = false;
 
             const end = try std.time.Instant.now();
-            std.debug.print("time for draw frame: {} ns\n", .{end.since(start)});
+            self.profiler += end.since(start);
         }
 
         pub fn add_listener(self: *Self, listener: ResizeListener) !void {
@@ -146,6 +148,8 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn key_input(self: *Self, key_string: []const u8) !void {
+            const start = try std.time.Instant.now();
+
             if (key_string.len == 1) {
                 if (self.mode == .Normal) {
                     try self.buffers.get_mut().insert_string(key_string);
@@ -162,6 +166,9 @@ pub fn Core(Backend: type) type {
             }
 
             self.change = true;
+
+            const end = try std.time.Instant.now();
+            self.profiler += end.since(start);
         }
 
         pub fn key_up(self: *Self) void {
@@ -177,6 +184,7 @@ pub fn Core(Backend: type) type {
                c.deinit();
            }
 
+           std.debug.print("time taken: {} ms\n", .{self.profiler / 1000000});
            self.allocator.destroy(self);
         }
 

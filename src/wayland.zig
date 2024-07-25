@@ -113,17 +113,6 @@ pub const Wayland = struct {
 
     pub fn get_events(self: *const Wayland) void {
         _ = c.wl_display_roundtrip(self.display);
-
-        // if (core.last_fn) |f| {
-        //     const now = Instant.now() catch return;
-        //     if (now.since(core.last_fetch_delay) > core.key_delay) {
-        //         if (now.since(core.last_fetch_rate) > core.key_rate) {
-        //             f(core) catch {
-        //                 return;
-        //             };
-        //         }
-        //     }
-        // }
     }
 
     pub fn deinit(self: *const Wayland) void {
@@ -490,6 +479,7 @@ pub fn toplevel_configure(data: ?*anyopaque, _: ?*c.xdg_toplevel, width: i32, he
     if (width > 0 and height > 0) {
         const w: u32 = @intCast(width);
         const h: u32 = @intCast(height);
+
 
         window.resize(w, h);
     }
