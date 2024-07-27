@@ -96,20 +96,22 @@ pub fn main() !void {
     try window.add_listener(painter.resize_listener());
     try window.add_listener(swapchain.resize_listener());
 
-    // for (testing) |c| {
-    //     try window.key_input(c);
-    //     window.handle.get_events();
-    //     try window.update();
+    const frame_wait = 1000 / window.frame_rate;
 
-    //     std.time.sleep(1000000 * 30);
-    //     try swapchain.wait();
-    // }
-
-    while (window.state != .Closing) {
+    for (testing) |c| {
+        try window.key_input(c);
         window.handle.get_events();
         try window.update();
 
-        std.time.sleep(1000000 * window.frame_rate);
+        std.time.sleep(1000000 * frame_wait);
         try swapchain.wait();
     }
+
+    // while (window.state != .Closing) {
+    //     window.handle.get_events();
+    //     try window.update();
+
+    //     std.time.sleep(1000000 * frame_wait);
+    //     try swapchain.wait();
+    // }
 }
