@@ -69,13 +69,28 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const font = try TrueType.init(22, "RecMonoLinearNerdFont-Regular.ttf", allocator);
+    defer font.deinit();
+
     const window = try Window(Wayland).init(1920, 1080, font.scale, font.ratio, allocator);
-    const instance = try Instance.init(Wayland, &window.handle);
+    defer window.deinit();
+
+    var instance = try Instance.init(Wayland, &window.handle);
+    defer instance.deinit();
+
     const device = try Device.init(&instance);
+    defer device.deinit();
+
     const graphics_pipeline = try GraphicsPipeline.init(&instance, &device);
+    defer graphics_pipeline.deinit(&device);
+
     var swapchain = try Swapchain.init(&device, instance.surface, graphics_pipeline.format, graphics_pipeline.render_pass, window.size, allocator);
+    defer swapchain.deinit();
+
     const command_pool = try CommandPool.init(&device, &swapchain, allocator);
+    defer command_pool.deinit(&device);
+
     var painter = try Painter.init(&swapchain, &graphics_pipeline, &command_pool, &font, window.size, allocator);
+    defer painter.deinit();
 
     window.set_painter(&painter);
     try window.add_listener(painter.resize_listener());
@@ -89,20 +104,12 @@ pub fn main() !void {
     //     std.time.sleep(1000000 * 30);
     //     try swapchain.wait();
     // }
+
     while (window.state != .Closing) {
         window.handle.get_events();
         try window.update();
 
-        std.time.sleep(1000000 * 100);
+        std.time.sleep(1000000 * window.frame_rate);
         try swapchain.wait();
     }
-
-    font.deinit();
-    painter.deinit();
-    command_pool.deinit(&device);
-    swapchain.deinit(&device);
-    graphics_pipeline.deinit(&device);
-    device.deinit();
-    instance.deinit();
-    window.deinit();
 }

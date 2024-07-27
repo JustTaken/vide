@@ -155,6 +155,8 @@ pub fn Core(Backend: type) type {
         last_fetch_delay: Instant,
         last_fetch_rate: Instant,
 
+        frame_rate: u32,
+
         repeating: bool,
 
         profiler: u64,
@@ -179,6 +181,7 @@ pub fn Core(Backend: type) type {
             self.commander = try Commander.init(Self, allocator);
             self.delay = 200 * 1000 * 1000;
             self.rate = 20 * 1000 * 1000;
+            self.frame_rate = 30;
             self.repeating = false;
 
             self.ratios[0] = math.divide(height, width);

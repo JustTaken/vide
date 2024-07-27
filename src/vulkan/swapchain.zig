@@ -188,7 +188,8 @@ pub const Swapchain = struct {
         };
     }
 
-    pub fn deinit(self: *const Swapchain, device: *const Device) void {
+    pub fn deinit(self: *const Swapchain) void {
+        const device = self.device;
         const count = self.framebuffers.len;
 
         for (0..count) |i| {

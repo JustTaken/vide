@@ -11,8 +11,7 @@ pub fn build(builder: *Builder) void {
         .optimize = optimize,
     });
 
-    main.linkSystemLibrary("dl");
-    main.linkSystemLibrary("wayland-client");
+    main.linkLibC();
     main.linkSystemLibrary("freetype");
 
     scan_wayland_xml(builder, "private-code", "include/xdg-shell.c");
@@ -21,8 +20,9 @@ pub fn build(builder: *Builder) void {
     add_shader(builder, "vert");
     add_shader(builder, "frag");
 
-    main.addCSourceFile(.{ .file = .{ .src_path = .{ .owner = builder, .sub_path = "zig-out/include/xdg-shell.c" } } });
     main.addIncludePath(.{ .src_path = .{ .owner = builder, .sub_path = "zig-out/include" } });
+    main.addCSourceFile(.{ .file = .{ .src_path = .{ .owner = builder, .sub_path = "zig-out/include/xdg-shell.c" } } });
+    main.addCSourceFile(.{ .file = .{ .src_path = .{ .owner = builder, .sub_path = "assets/xdg-shell.c" } } });
 
     builder.installArtifact(main);
 

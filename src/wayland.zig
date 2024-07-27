@@ -4,11 +4,80 @@ const c = @import("bind.zig").c;
 const math = @import("math.zig");
 const util = @import("util.zig");
 
+const Allocator = std.mem.Allocator;
 const Window = @import("window/core.zig").Core(Wayland);
 const VkInstanceDispatch = @import("vulkan/instance.zig").Dispatch;
 
-const Allocator = std.mem.Allocator;
-const Instant = std.time.Instant;
+var libwaylandclient: LibWaylandClient = undefined;
+
+export fn wl_proxy_add_listener(proxy: ?*c.struct_wl_proxy, implementation: [*c]?*const fn () callconv(.C) void, data: ?*anyopaque) c_int {
+    return @call(.always_tail, libwaylandclient.wl_proxy_add_listener, .{ proxy, implementation, data });
+}
+
+export fn wl_proxy_get_version(proxy: ?*c.struct_wl_proxy) u32 {
+    return @call(.always_tail, libwaylandclient.wl_proxy_get_version, .{proxy});
+}
+
+export fn wl_proxy_marshal_flags(proxy: ?*c.struct_wl_proxy, opcode: u32, interface: [*c]const c.struct_wl_interface, version: u32, flags: u32, ...) ?*c.struct_wl_proxy {
+    var arg_list: std.builtin.VaList = @cVaStart();
+    defer @cVaEnd(&arg_list);
+
+    return @call(.always_tail, libwaylandclient.wl_proxy_marshal_flags, .{ proxy, opcode, interface, version, flags, arg_list });
+}
+
+export fn wl_proxy_destroy(proxy: ?*c.struct_wl_proxy) void {
+    return @call(.always_tail, libwaylandclient.wl_proxy_destroy, .{proxy});
+}
+
+const LibWaylandClient = struct {
+    handle: std.DynLib,
+
+    wl_display_connect: *const @TypeOf(c.wl_display_connect),
+    wl_proxy_add_listener: *const @TypeOf(c.wl_proxy_add_listener),
+    wl_proxy_get_version: *const @TypeOf(c.wl_proxy_get_version),
+    wl_proxy_marshal_flags: *const @TypeOf(c.wl_proxy_marshal_flags),
+    wl_display_roundtrip: *const @TypeOf(c.wl_display_roundtrip),
+    wl_display_dispatch: *const @TypeOf(c.wl_display_dispatch),
+    wl_display_disconnect: *const @TypeOf(c.wl_display_disconnect),
+    wl_proxy_destroy: *const @TypeOf(c.wl_proxy_destroy),
+
+    wl_compositor_interface: *@TypeOf(c.wl_compositor_interface),
+    wl_keyboard_interface: *@TypeOf(c.wl_keyboard_interface),
+
+    wl_buffer_interface: *@TypeOf(c.wl_buffer_interface),
+    wl_callback_interface: *@TypeOf(c.wl_callback_interface),
+    wl_data_device_interface: *@TypeOf(c.wl_data_device_interface),
+    wl_data_offer_interface: *@TypeOf(c.wl_data_offer_interface),
+    wl_data_source_interface: *@TypeOf(c.wl_data_source_interface),
+    wl_output_interface: *@TypeOf(c.wl_output_interface),
+    wl_pointer_interface: *@TypeOf(c.wl_pointer_interface),
+    wl_region_interface: *@TypeOf(c.wl_region_interface),
+    wl_registry_interface: *@TypeOf(c.wl_registry_interface),
+    wl_seat_interface: *@TypeOf(c.wl_seat_interface),
+    wl_shell_surface_interface: *@TypeOf(c.wl_shell_surface_interface),
+    wl_shm_pool_interface: *@TypeOf(c.wl_shm_pool_interface),
+    wl_subsurface_interface: *@TypeOf(c.wl_subsurface_interface),
+    wl_surface_interface: *@TypeOf(c.wl_surface_interface),
+    wl_touch_interface: *@TypeOf(c.wl_touch_interface),
+
+    pub extern const xdg_wm_base_interface: @TypeOf(c.xdg_wm_base_interface);
+
+    fn init() !LibWaylandClient {
+        var self: LibWaylandClient = undefined;
+        self.handle = try std.DynLib.open("libwayland-client.so.0");
+
+        inline for (@typeInfo(LibWaylandClient).Struct.fields[1..]) |field| {
+            const name: [:0]const u8 = @ptrCast(std.fmt.comptimePrint("{s}\x00", .{field.name}));
+            @field(self, field.name) = self.handle.lookup(field.type, name) orelse return error.SymbolNoFound;
+        }
+
+        return self;
+    }
+
+    fn deinit(self: *LibWaylandClient) void {
+        self.handle.close();
+    }
+};
 
 pub const Wayland = struct {
     display: *c.wl_display,
@@ -68,13 +137,14 @@ pub const Wayland = struct {
             .repeat_info = keyboard_repeat_info,
         };
 
-        const window_ptr: *anyopaque = @ptrCast(window);
+        libwaylandclient = try LibWaylandClient.init();
 
-        window.handle.display = c.wl_display_connect(null) orelse return error.DisplayConnect;
+        const window_ptr: *anyopaque = @ptrCast(window);
+        window.handle.display = libwaylandclient.wl_display_connect(null) orelse return error.DisplayConnect;
         window.handle.registry = c.wl_display_get_registry(window.handle.display) orelse return error.RegistryGet;
         _ = c.wl_registry_add_listener(window.handle.registry, &window.handle.registry_listener, window_ptr);
 
-        _ = c.wl_display_roundtrip(window.handle.display);
+        _ = libwaylandclient.wl_display_roundtrip(window.handle.display);
 
         window.handle.surface = c.wl_compositor_create_surface(window.handle.compositor) orelse return error.SurfaceCreate;
         _ = c.xdg_wm_base_add_listener(window.handle.xdg_shell, &window.handle.shell_listener, window_ptr);
@@ -84,11 +154,10 @@ pub const Wayland = struct {
 
         window.handle.xdg_toplevel = c.xdg_surface_get_toplevel(window.handle.xdg_surface) orelse return error.XdgToplevelGet;
         _ = c.xdg_toplevel_add_listener(window.handle.xdg_toplevel, &window.handle.xdg_toplevel_listener, window_ptr);
-
         _ = c.wl_seat_add_listener(window.handle.seat, &window.handle.seat_listener, window_ptr);
 
         c.wl_surface_commit(window.handle.surface);
-        _ = c.wl_display_roundtrip(window.handle.display);
+        _ = libwaylandclient.wl_display_roundtrip(window.handle.display);
     }
 
     pub fn get_surface(self: *const Wayland, instance: c.VkInstance, dispatch: *const VkInstanceDispatch) !c.VkSurfaceKHR {
@@ -112,10 +181,10 @@ pub const Wayland = struct {
     }
 
     pub fn get_events(self: *const Wayland) void {
-        _ = c.wl_display_roundtrip(self.display);
+        _ = libwaylandclient.wl_display_roundtrip(self.display);
     }
 
-    pub fn deinit(self: *const Wayland) void {
+    pub fn deinit(self: *Wayland) void {
         c.wl_keyboard_release(self.keyboard);
         c.xdg_toplevel_destroy(self.xdg_toplevel);
         c.xdg_surface_destroy(self.xdg_surface);
@@ -123,7 +192,9 @@ pub const Wayland = struct {
         c.wl_surface_destroy(self.surface);
         c.wl_compositor_destroy(self.compositor);
         c.wl_registry_destroy(self.registry);
-        c.wl_display_disconnect(self.display);
+        libwaylandclient.wl_display_disconnect(self.display);
+
+        libwaylandclient.deinit();
     }
 };
 
@@ -156,14 +227,14 @@ pub fn global_listener(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, 
     const core = &window.handle;
     const interface_name = std.mem.span(interface);
 
-    if (std.mem.eql(u8, interface_name, std.mem.span(c.wl_compositor_interface.name))) {
-        const compositor = c.wl_registry_bind(registry, name, &c.wl_compositor_interface, 4) orelse return;
+    if (std.mem.eql(u8, interface_name, "wl_compositor")) {
+        const compositor = c.wl_registry_bind(registry, name, libwaylandclient.wl_compositor_interface, 4) orelse return;
         core.compositor = @ptrCast(@alignCast(compositor));
-    } else if (std.mem.eql(u8, interface_name, std.mem.span(c.xdg_wm_base_interface.name))) {
-        const shell = c.wl_registry_bind(registry, name, &c.xdg_wm_base_interface, 1) orelse return;
+    } else if (std.mem.eql(u8, interface_name, "xdg_wm_base")) {
+        const shell = c.wl_registry_bind(registry, name, &LibWaylandClient.xdg_wm_base_interface, 1) orelse return;
         core.xdg_shell = @ptrCast(@alignCast(shell));
-    } else if (std.mem.eql(u8, interface_name, std.mem.span(c.wl_seat_interface.name))) {
-        const seat = c.wl_registry_bind(registry, name, &c.wl_seat_interface, 4) orelse return;
+    } else if (std.mem.eql(u8, interface_name, "wl_seat")) {
+        const seat = c.wl_registry_bind(registry, name, libwaylandclient.wl_seat_interface, 4) orelse return;
         core.seat = @ptrCast(@alignCast(seat));
     }
 }

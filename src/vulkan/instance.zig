@@ -1,3 +1,4 @@
+const std = @import("std");
 const c = @import("../bind.zig").c;
 
 const check = @import("result.zig").check;
@@ -19,8 +20,8 @@ pub const Dispatch = struct {
     vkDestroyInstance: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void,
     vkGetInstanceProcAddr: *const fn (c.VkInstance, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction,
 
-    fn init(library: *anyopaque, instance: c.VkInstance) !Dispatch {
-        const vkGetInstanceProcAddr = @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.dlsym(library, "vkGetInstanceProcAddr"))) orelse return error.PFN_vkGetInstanceProcAddr;
+    fn init(library: *std.DynLib, instance: c.VkInstance) !Dispatch {
+        const vkGetInstanceProcAddr = (library.lookup(c.PFN_vkGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse return error.PFN_vkGetInstanceProcAddr) orelse return error.PointerError;
         return Dispatch {
             .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
             .vkDestroySurfaceKHR = @as(c.PFN_vkDestroySurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroySurfaceKHR"))) orelse return error.FunctionNotFound,
@@ -41,15 +42,14 @@ pub const Dispatch = struct {
     }
 };
 pub const Instance = struct {
-    library: *anyopaque,
-
+    library: std.DynLib,
     handle: c.VkInstance,
     surface: c.VkSurfaceKHR,
     dispatch: Dispatch,
 
     pub fn init(Backend: type, backend: *const Backend) !Instance {
-        const library = c.dlopen("libvulkan.so", 1) orelse return error.VulkanLibraryLoading;
-        const vkCreateInstance = @as(c.PFN_vkCreateInstance, @ptrCast(c.dlsym(library, "vkCreateInstance"))) orelse return error.PFN_vkCreateInstanceNotFound;
+        var library = try std.DynLib.open("libvulkan.so");
+        const vkCreateInstance = (library.lookup(c.PFN_vkCreateInstance, "vkCreateInstance") orelse return error.PFN_vkCreateInstanceNotFound) orelse return error.PointerError;
 
         const application_info = c.VkApplicationInfo {
             .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -77,21 +77,21 @@ pub const Instance = struct {
         var instance: c.VkInstance = undefined;
         try check(vkCreateInstance(&instance_create_info, null, &instance));
 
-        const dispatch = try Dispatch.init(library, instance);
+        const dispatch = try Dispatch.init(&library, instance);
 
         return Instance {
              .library = library,
              .handle = instance,
-             .dispatch = try Dispatch.init(library, instance),
+             .dispatch = dispatch,
              .surface = try backend.get_surface(instance, &dispatch),
         };
     }
 
-    pub fn deinit(self: *const Instance) void {
+    pub fn deinit(self: *Instance) void {
         self.dispatch.vkDestroySurfaceKHR(self.handle, self.surface, null);
         self.dispatch.vkDestroyInstance(self.handle, null);
 
-        _ = c.dlclose(self.library);
+        self.library.close();
     }
 };
 
