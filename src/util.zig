@@ -1,3 +1,18 @@
+const std = @import("std");
+
+const Allocator = std.mem.Allocator;
+
+pub fn read_file(path: []const u8, buffer: []u8) !u32 {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const end_pos = try file.getEndPos();
+
+    if (try file.read(buffer) != end_pos) return error.IncompleteContetent;
+
+    return @intCast(end_pos);
+}
+
 pub fn copy(T: type, src: []const T, dst: []T) void {
     @setRuntimeSafety(false);
 
@@ -30,12 +45,14 @@ pub fn parse(i: u32, buffer: []u8) u32 {
 
 pub fn hash(string: []const u8) u32 {
     var h: u32 = 0;
-    const len: u32 = @intCast(string.len);
 
-    for (0..len) |i| {
-        const index: u32 = @intCast(i);
-        h += string[i] + index;
+    for (0..string.len) |i| {
+        h += string[i];
     }
 
-    return h * len;
+    return h;
+}
+
+pub fn assert(b: bool) error { False }!void {
+    if (!b) return error.False;
 }
