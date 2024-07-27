@@ -3,6 +3,7 @@ const c = @import("bind.zig").c;
 const math = @import("math.zig");
 
 const Allocator = std.mem.Allocator;
+const FixedVec = @import("collections.zig").FixedVec;
 
 const Size = math.Vec2D;
 const Offset = math.Vec2D;
@@ -149,6 +150,39 @@ const Face = struct {
     }
 };
 
+fn find_path(name: []const u8, allocator: Allocator) !FixedVec(u8, 100) {
+    const data_home = try std.process.getEnvVarOwned(allocator, "XDG_DATA_HOME");
+    defer allocator.free(data_home);
+
+    var path = FixedVec(u8, 100).init();
+    try path.extend(data_home);
+    try path.extend("fonts/");
+
+    const fs = std.fs.cwd();
+
+    var dir = try fs.openDir(path.elements(), .{ .iterate = true });
+    defer dir.close();
+
+    var iter = dir.iterate();
+
+    while (try iter.next()) |d| {
+        var nest_dir = try dir.openDir(d.name, .{ .iterate = true });
+        var d_iter = nest_dir.iterate();
+
+        while (try d_iter.next()) |f| {
+            if (std.mem.eql(u8, f.name, name)) {
+                try path.extend(d.name);
+                try path.push('/');
+                try path.extend(f.name);
+                try path.push(0);
+                return path;
+            }
+        }
+    }
+
+    return error.NotFound;
+}
+
 pub const TrueType = struct {
     bitmap: Bitmap,
     glyph_count: u32,
@@ -157,13 +191,15 @@ pub const TrueType = struct {
     ratio: f32,
     glyph_size: Size,
 
-    pub fn init(size: u32, path: []const u8, allocator: Allocator) !TrueType {
-        const face = Face.init(path, size);
+    pub fn init(size: u32, name: []const u8, allocator: Allocator) !TrueType {
+        var path = try find_path(name, allocator);
+
+        const face = Face.init(path.elements(), size);
         defer face.deinit();
 
         var bitmap = try Bitmap.init(
             Size.init(
-                (face.glyph_size.x + PADDING) * (COLS + 1),
+                (face.glyph_size.x + PADDING) * COLS,
                 (face.glyph_size.y + PADDING) * ROWS,
             ),
             allocator,

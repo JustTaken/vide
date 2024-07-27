@@ -68,7 +68,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
     const allocator = gpa.allocator();
 
-    const font = try TrueType.init(30, "assets/font/font.ttf", allocator);
+    const font = try TrueType.init(22, "RecMonoLinearNerdFont-Regular.ttf", allocator);
     const window = try Window(Wayland).init(1920, 1080, font.scale, font.ratio, allocator);
     const instance = try Instance.init(Wayland, &window.handle);
     const device = try Device.init(&instance);

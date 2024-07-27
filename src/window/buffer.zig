@@ -94,14 +94,14 @@ pub const Buffer = struct {
 
     pub fn init(
         name: []const u8,
-        content: []const u8,
+        buf: []const u8,
         foreground_changes: *Vec(Change),
         background_changes: *Vec(Change),
         size: Length,
         allocator: Allocator
     ) !Buffer {
         var buffer: Buffer = undefined;
-        const len: u32 = @intCast(content.len);
+        const len: u32 = @intCast(buf.len);
         buffer.foreground_changes = foreground_changes;
         buffer.background_changes = background_changes;
         buffer.lines = try Vec(Line).init((len + Line.CHAR_COUNT) / Line.CHAR_COUNT, allocator);
@@ -109,9 +109,9 @@ pub const Buffer = struct {
         {
             var start: usize = 0;
             for (0..len) |i| {
-                if (content[i] == '\n') {
+                if (buf[i] == '\n') {
                     try buffer.lines.push(
-                        try Line.init(content[start..i], allocator)
+                        try Line.init(buf[start..i], allocator)
                     );
 
                     start = i + 1;
@@ -215,6 +215,17 @@ pub const Buffer = struct {
 
         self.selection.active = false;
         try self.move_cursor(&Cursor.init(self.cursor.x + len, self.cursor.y));
+    }
+
+    pub fn content(self: *const Buffer, allocator: Allocator) !Vec(u8) {
+        var vec = try Vec(u8).init(self.lines.len() * 40, allocator);
+
+        for (self.lines.items) |line| {
+            try vec.extend(line.content.items);
+            try vec.push('\n');
+        }
+
+        return vec;
     }
 
     pub fn commands() []const Fn {

@@ -105,13 +105,21 @@ const Commander = struct {
         if (!self.get(primary).execute_key(key)) if (!self.get(fallback).execute_key(key)) return error.CommandFail;
 
         self.key.clear();
-        try self.key.extend(key);
         self.primary = primary;
         self.fallback = fallback;
+        try self.key.extend(key);
+    }
+
+    fn execute_string(self: *Commander, string: []const u8, primary: CommandHandlerType, fallback: CommandHandlerType) !void {
+        if (!self.get(primary).execute_string(string)) 
+            if (!self.get(fallback).execute_string(string)) 
+                return error.CommandFail;
     }
 
     fn repeat(self: *Commander) !void {
-        if (!self.get(self.primary).execute_key(self.key.elements())) if (!self.get(self.fallback).execute_key(self.key.elements())) return error.CommandFail;
+        if (!self.get(self.primary).execute_key(self.key.elements())) 
+            if (!self.get(self.fallback).execute_key(self.key.elements())) 
+                return error.CommandFail;
     }
 
     fn deinit(self: *Commander) void {
@@ -183,7 +191,7 @@ pub fn Core(Backend: type) type {
                 @intFromFloat(1.0 / self.ratios[1])
             );
 
-            try self.buffers.push(try Buffer.init("scratch", "", &self.foreground_changes, &self.background_changes, cels.sub(&Size.init(0, 1)), allocator));
+            try self.buffers.push(try Buffer.init("scratch", "This is a scratch buffer\n", &self.foreground_changes, &self.background_changes, cels.sub(&Size.init(0, 1)), allocator));
             self.command_line = try CommandLine.init(cels, &self.foreground_changes, &self.background_changes, allocator);
 
             self.commander.set(.Window, self);
@@ -331,7 +339,8 @@ pub fn Core(Backend: type) type {
         fn string_commands() []const Fn {
             return &[_]Fn {
                 Fn { .f = open_file,        .string = "open" },
-                Fn { .f = open_buffer,        .string = "buffer" },
+                Fn { .f = open_buffer,      .string = "buffer" },
+                Fn { .f = save,             .string = "save" },
             };
         }
 
@@ -341,15 +350,9 @@ pub fn Core(Backend: type) type {
             if (self.mode == .Command) {
                 self.mode = .Normal;
 
-                const command_handler = self.commander.get(.Window);
                 const content = self.command_line.chars();
-
                 try self.command_line.deactive();
-                if (!command_handler.execute_string(content)) {
-                    const buffer_command_handle = self.commander.get(.Buffer);
-                    if (!buffer_command_handle.execute_string(content)) return;
-                }
-
+                self.commander.execute_string(content, .Window, .Buffer) catch return;
             } else {
                 return error.DoNotHandle;
             }
@@ -417,6 +420,19 @@ pub fn Core(Backend: type) type {
                 try self.buffers.push(try Buffer.init(args[0], content, &self.foreground_changes, &self.background_changes, cels.sub(&Size.init(0, 1)), self.allocator));
                 self.commander.set(.Buffer, self.buffers.get_mut());
             };
+        }
+
+        fn save(ptr: *anyopaque, _: []const []const u8) !void {
+            const self: *Self = @ptrCast(@alignCast(ptr));
+            const buffer = self.buffers.get_mut();
+
+            const file = try std.fs.cwd().openFile(buffer.name, .{ .mode = .write_only });
+            defer file.close();
+
+            const content = try buffer.content(self.allocator);
+            defer content.deinit();
+
+            _ = try file.write(content.items);
         }
     };
 }
