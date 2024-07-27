@@ -55,13 +55,20 @@ const testing: []const []const u8 = &.{
     "2", "7", " ", "T", "h", "i", "s", " ", "i", "s", " ", "a", " ", "t", "e", "s", "t", " ", "m", "e", "s", "s", "a", "g", "e", "Ret",
     "2", "8", " ", "T", "h", "i", "s", " ", "i", "s", " ", "a", " ", "t", "e", "s", "t", " ", "m", "e", "s", "s", "a", "g", "e", "Ret",
     "C-Spc", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-p", "C-d",
+    "A-x", "o", "p", "e", "n", " ", "s", "r", "c", "/", "m", "a", "i", "n", ".", "z", "i", "g", "Ret", "C-n", "C-n", "C-Spc", "C-n", "C-e", "C-n", "C-d",
+    "A-x", "b", "u", "f", "f", "e", "r", " ", "s", "c", "r", "a", "t", "c", "h", "i", "m", "a", "d", "e", "a", "m", "i", "s", "t", "a", "k", "e",
+    "C-Spc", "C-a", "C-d", "b", "u", "f", "f", "e", "r", " ", "s", "c", "r", "a", "t", "c", "h", "Ret", "C-Spc", "C-e", "C-b", "C-d", "e", "n", "d",
+    "T", "h", "i", "s", " ", "i", "s", " ", "a", " ", "e", "n", "d", " ", "m", "e", "s", "s", "a", "g", "e", "Ret",
+    "T", "h", "i", "s", " ", "i", "s", " ", "a", " ", "e", "n", "d", " ", "m", "e", "s", "s", "a", "g", "e", "Ret",
+    "T", "h", "i", "s", " ", "i", "s", " ", "a", " ", "e", "n", "d", " ", "m", "e", "s", "s", "a", "g", "e", "Ret",
+    "T", "h", "i", "s", " ", "i", "s", " ", "a", " ", "e", "n", "d", " ", "m", "e", "s", "s", "a", "g", "e", "Ret",
 };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
     const allocator = gpa.allocator();
 
-    const font = try TrueType.init(35, "assets/font/font.ttf", allocator);
+    const font = try TrueType.init(30, "assets/font/font.ttf", allocator);
     const window = try Window(Wayland).init(1920, 1080, font.scale, font.ratio, allocator);
     const instance = try Instance.init(Wayland, &window.handle);
     const device = try Device.init(&instance);
@@ -74,21 +81,21 @@ pub fn main() !void {
     try window.add_listener(painter.resize_listener());
     try window.add_listener(swapchain.resize_listener());
 
-    for (testing) |c| {
-        try window.key_input(c);
-        window.handle.get_events();
-        try window.update();
-
-        std.time.sleep(1000000 * 30);
-        try swapchain.wait();
-    }
-    // while (window.state != .Closing) {
+    // for (testing) |c| {
+    //     try window.key_input(c);
     //     window.handle.get_events();
     //     try window.update();
 
-    //     std.time.sleep(1000000 * 100);
+    //     std.time.sleep(1000000 * 30);
     //     try swapchain.wait();
     // }
+    while (window.state != .Closing) {
+        window.handle.get_events();
+        try window.update();
+
+        std.time.sleep(1000000 * 100);
+        try swapchain.wait();
+    }
 
     font.deinit();
     painter.deinit();

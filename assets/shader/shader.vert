@@ -24,7 +24,7 @@ layout(set = 0, binding = 0) uniform UniformGlobalObject {
 } ugo;
 
 void main() {
-  float y = int(gl_InstanceIndex / ugo.cols_per_row);
+  float y = int(int(gl_InstanceIndex) / int(ugo.cols_per_row));
   float x = gl_InstanceIndex - int(y * ugo.cols_per_row);
 
   vec2 p = vertices[gl_VertexIndex] + vec2(x, y) * 2 + vec2(1.0, 1.0);

@@ -24,14 +24,12 @@ pub const CommandHandler = struct {
     allocator: Allocator,
 
     pub fn init(
-        ptr: *anyopaque, 
         key_sub: []const Fn,
         cmd_sub: []const Fn,
         allocator: Allocator
     ) !CommandHandler {
         var command_handler: CommandHandler = undefined;
 
-        command_handler.ptr = ptr;
         command_handler.allocator = allocator;
         command_handler.cmd_fn = try HashSet(Fn).init((cmd_sub.len + 1) / 2 * 3, allocator);
         command_handler.key_fn = try HashSet(Fn).init((key_sub.len + 1) / 2 * 3, allocator);
@@ -42,7 +40,11 @@ pub const CommandHandler = struct {
         return command_handler;
     }
 
-    pub fn execute_key(self: *const CommandHandler, keys: []const u8) bool {
+    pub fn set(self: *CommandHandler, ptr: *anyopaque) void {
+        self.ptr = ptr;
+    }
+
+    pub fn execute_key(self: *CommandHandler, keys: []const u8) bool {
         if (self.key_fn.items.len == 0) return false;
         const element = self.key_fn.get(Fn { .string = keys, .f = undefined }) catch return false;
 
@@ -62,7 +64,6 @@ pub const CommandHandler = struct {
                 break;
             }
         }
-
 
         const element = self.cmd_fn.get(Fn { .string = cmd, .f = undefined }) catch return false;
 

@@ -38,6 +38,13 @@ pub const Vec2D = struct {
         if (self.greater(other)) return other;
         return self;
     }
+
+    pub inline fn copy(self: *const Vec2D) Vec2D {
+        return .{
+            .x = self.x,
+            .y = self.y,
+        };
+    }
 };
 
 pub const Rect = struct {

@@ -339,10 +339,21 @@ pub fn FixedVec(T: type, L: u32) type {
             self.len += 1;
         }
 
+        pub fn extend(self: *Self, items: []const T) error { OutOfLength }!void {
+            if (self.items.len <= self.len + items.len) return error.OutOfLength;
+
+            util.copy(T, items, self.items[self.len..]);
+            self.len += @intCast(items.len);
+        }
+
         pub fn get(self: *Self, index: u32) !*T {
             if (index >= self.len) return error.OutOfLength;
 
             return &self.items[index];
+        }
+
+        pub fn clear(self: *Self) void {
+            self.len = 0;
         }
 
         pub fn elements(self: *Self) []T {

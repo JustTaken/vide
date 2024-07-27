@@ -14,6 +14,7 @@ const CommandPool = @import("command_pool.zig").CommandPool;
 const Font = @import("../truetype.zig").TrueType;
 
 const WindowBuffer = @import("../window/buffer.zig").Buffer;
+const Change = @import("../window/core.zig").Change;
 const CommandLine = @import("../window/command_line.zig").CommandLine;
 const ResizeListener = @import("../window/core.zig").ResizeListener;
 const Size = @import("../math.zig").Vec2D;
@@ -54,7 +55,7 @@ const DrawElement = struct {
         return element;
     }
 
-    fn push(self: *DrawElement, char: u8, col: usize, row: usize) !void {
+    fn push(self: *DrawElement, char: u8, col: usize, row: usize) void {
         self.data[row * self.size.x + col] = .{ char - 32, 0, 255, 255 };
     }
 
@@ -162,12 +163,14 @@ pub const Painter = struct {
         return painter;
     }
 
-    pub fn update(self: *Painter, buffer: *WindowBuffer, command_line: *CommandLine) !void {
-        try buffer.char_iter(DrawElement, &self.foreground, DrawElement.push);
-        try buffer.back_iter(DrawElement, &self.background, DrawElement.push);
-        // try command_line.char_iter(Painter, self, on_char);
-        // try command_line.cursor_back(Painter, self, on_back);
-        _ = command_line;
+    pub fn update(self: *Painter, foreground: []const Change, background: []const Change) !void {
+        for (foreground) |fore| {
+            self.foreground.push(fore.char, fore.x, fore.y);
+        }
+
+        for (background) |back| {
+            self.background.push(back.char, back.x, back.y);
+        }
     }
 
     pub fn draw(self: *Painter) !void {
@@ -292,7 +295,9 @@ pub const Painter = struct {
         self.uniform.dst[0] = math.divide(size.y, size.x);
         const x: u32 = @intFromFloat(1.0 / (self.uniform.dst[0] * self.uniform.dst[1] * self.uniform.dst[2]));
         const y: u32 = @intFromFloat(1.0 / (self.uniform.dst[1]));
+
         const new_size = Size.init(x, y);
+
         self.uniform.dst[7] = @floatFromInt(x);
 
         self.foreground.new_size(new_size);
