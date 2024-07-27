@@ -56,14 +56,3 @@ pub fn hash(string: []const u8) u32 {
 pub fn assert(b: bool) error { False }!void {
     if (!b) return error.False;
 }
-
-pub fn hash_key(string: []const u8) u32 {
-    var h: usize = 0;
-    for (0..string.len) |i| {
-        h += string[i] * i;
-    }
-
-    h *= string.len;
-
-    return @intCast(h);
-}

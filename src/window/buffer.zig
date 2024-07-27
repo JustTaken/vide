@@ -147,21 +147,21 @@ pub const Buffer = struct {
     }
 
     fn operate_on_selection(self: *Buffer, f: fn (u32, u32) Change) !void {
+        const rect_end = self.rect.end();
         const greater = self.cursor.greater(&self.selection.cursor);
         var s = if (greater) self.selection.cursor else self.cursor;
         var e = if (greater) self.cursor else self.selection.cursor;
 
-        s.x = math.max(s.x, self.rect.coord.x);
-        e.x = math.min(e.x, self.rect.coord.x + self.rect.size.x - 1);
+        s.x = math.clamp(self.rect.coord.x, s.x, rect_end.x - 1);
+        e.x = math.clamp(self.rect.coord.x, e.x, rect_end.x - 1);
 
-        const rect_end = self.rect.end();
         const start = s.max(&self.rect.coord).sub(&self.rect.coord);
         const end = e.min(&rect_end.sub(&Cursor.init(1, 1))).sub(&self.rect.coord);
 
         if (start.y == end.y) {
             for (start.x..end.x + 1) |j| { try self.background_changes.push(f(@intCast(j), start.y)); }
         } else {
-            for (start.x..math.min(self.lines.items[start.y].len() + 1, rect_end.x)) |j| { try self.background_changes.push(f(@intCast(j), start.y)); }
+            for (start.x..math.min(self.lines.items[start.y + self.rect.coord.y].len() + 1, rect_end.x) - self.rect.coord.x) |j| try self.background_changes.push(f(@intCast(j), start.y));
             for (0..end.x + 1) |j| { try self.background_changes.push(f(@intCast(j), end.y)); }
             for (start.y + 1..end.y) |i| {
                 if (self.lines.items[self.rect.coord.y + i].len() < self.rect.coord.x) continue;
@@ -228,9 +228,9 @@ pub const Buffer = struct {
             Fn { .f = line_end,    .string = "C-e" },
             Fn { .f = line_start,  .string = "C-a" },
             Fn { .f = space,       .string = "Spc" },
-            Fn { .f = selection,   .string = "C-Spc" },
             Fn { .f = scroll_up,   .string = "A-v" },
             Fn { .f = scroll_down, .string = "C-v" },
+            Fn { .f = selection,   .string = "C-Spc" },
         };
     }
 

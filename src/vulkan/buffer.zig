@@ -80,98 +80,10 @@ pub const Buffer = struct {
     }
 };
 
-pub fn Vec(T: type) type {
-    return struct {
-        buffer: Buffer,
-
-        elements: []T,
-        capacity: u32,
-
-        usage: u32,
-        properties: u32,
-
-        device: *const Device,
-        command_pool: *const CommandPool,
-
-        const Self = @This();
-
-        pub fn init(
-            usage: u32,
-            properties: u32,
-            capacity: u32, 
-            device: *const Device,
-            command_pool: *const CommandPool,
-        ) !Self {
-            var vec: Self = undefined;
-
-            vec.buffer = try Buffer.init(
-                T,
-                capacity,
-                usage,
-                properties,
-                device,
-            );
-
-            try check(device.dispatch.vkMapMemory(device.handle, vec.buffer.memory, 0, capacity * @sizeOf(T), 0, @ptrCast(&vec.elements)));
-
-            vec.capacity = capacity;
-            vec.elements.len = 0;
-
-            vec.usage = usage;
-            vec.properties = properties;
-            vec.device = device;
-            vec.command_pool = command_pool;
-
-            return vec;
-        }
-
-        pub fn push(self: *Self, item: T) !void {
-            const count = self.len();
-
-            if (self.capacity <= count) {
-                const new_len = count * 2;
-                const buffer = try Buffer.init(
-                    T,
-                    new_len,
-                    self.usage,
-                    self.properties,
-                    self.device,
-                );
-
-                var new: []T = undefined;
-                try check(self.device.dispatch.vkMapMemory(self.device.handle, buffer.memory, 0, new_len * @sizeOf(T), 0, @ptrCast(&new)));
-
-                util.copy(T, self.elements, new);
-
-                self.deinit();
-
-                self.buffer = buffer;
-                self.elements.ptr = new.ptr;
-                self.capacity = new_len;
-            }
-
-            self.elements.len += 1;
-            self.elements[count] = item;
-        }
-
-        pub fn reset(self: *Self) void {
-            self.elements.len = 0;
-        }
-
-        pub fn len(self: *const Self) u32 {
-            return @intCast(self.elements.len);
-        }
-
-        pub fn deinit(self: *const Self) void {
-            self.buffer.deinit(self.device);
-        }
-    };
-}
-
 pub const Uniform = struct {
     handle: Buffer,
     set: DescriptorSet,
-    dst: []f32,
+    data: []f32,
 
     pub fn init(
         T: type,
@@ -192,9 +104,9 @@ pub const Uniform = struct {
             device, 
         );
 
-        try check(device.dispatch.vkMapMemory(device.handle, uniform.handle.memory, 0, len * @sizeOf(T), 0, @ptrCast(&uniform.dst)));
+        try check(device.dispatch.vkMapMemory(device.handle, uniform.handle.memory, 0, len * @sizeOf(T), 0, @ptrCast(&uniform.data)));
 
-        util.copy(T, data, uniform.dst);
+        util.copy(T, data, uniform.data);
 
         uniform.set = try descriptor.get_set(device);
         uniform.set.update_buffer(T, uniform.handle.handle, binding, len, device);
@@ -205,6 +117,5 @@ pub const Uniform = struct {
     pub fn deinit(self: *const Uniform, device: *const Device) void {
         self.handle.deinit(device);
     }
-    
 };
 

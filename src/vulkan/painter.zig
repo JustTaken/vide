@@ -56,7 +56,7 @@ const DrawElement = struct {
     }
 
     fn push(self: *DrawElement, char: u8, col: usize, row: usize) void {
-        self.data[row * self.size.x + col] = .{ char - 32, 0, 255, 255 };
+        self.data[row * self.size.x + col] = .{ char - 32, 255, 255, 255 };
     }
 
     fn new_size(self: *DrawElement, size: Size) void {
@@ -117,6 +117,7 @@ pub const Painter = struct {
             font.glyph_height(),
             cols_f, 11.0, 3.0,
         };
+
         painter.uniform = try Uniform.init(
             f32,
             &uniform_data,
@@ -292,13 +293,13 @@ pub const Painter = struct {
     fn resize(ptr: *anyopaque, size: *const Size) void {
         const self: *Painter = @ptrCast(@alignCast(ptr));
 
-        self.uniform.dst[0] = math.divide(size.y, size.x);
-        const x: u32 = @intFromFloat(1.0 / (self.uniform.dst[0] * self.uniform.dst[1] * self.uniform.dst[2]));
-        const y: u32 = @intFromFloat(1.0 / (self.uniform.dst[1]));
+        self.uniform.data[0] = math.divide(size.y, size.x);
+        const new_size = Size.init(
+            @intFromFloat(1.0 / (self.uniform.data[0] * self.uniform.data[1] * self.uniform.data[2])),
+            @intFromFloat(1.0 / (self.uniform.data[1])),
+        );
 
-        const new_size = Size.init(x, y);
-
-        self.uniform.dst[7] = @floatFromInt(x);
+        self.uniform.data[7] = @floatFromInt(new_size.x);
 
         self.foreground.new_size(new_size);
         self.background.new_size(new_size);

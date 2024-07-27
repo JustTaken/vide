@@ -132,6 +132,10 @@ pub inline fn max(a: u32, b: u32) u32 {
   return b;
 }
 
+pub inline fn clamp(a: u32, c: u32, b: u32) u32 {
+    return max(a, min(c, b));
+}
+
 pub inline fn divide(numerator: u32, denumerator: u32) f32 {
   const f_numerator: f32 = @floatFromInt(numerator);
   const f_denumerator: f32 = @floatFromInt(denumerator);
