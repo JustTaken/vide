@@ -490,7 +490,9 @@ pub fn Core(Backend: type) type {
                         self.allocator,
                     ),
                 );
+
                 self.commander.set(.Buffer, self.buffers.get_mut());
+                try self.command_line.show(&.{ args[0], " opend" });
             };
         }
 
@@ -508,6 +510,8 @@ pub fn Core(Backend: type) type {
             defer content.deinit();
 
             _ = try file.write(content.items);
+
+            try self.command_line.show(&.{ buffer.name, " saved" });
         }
     };
 }

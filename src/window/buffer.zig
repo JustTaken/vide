@@ -41,6 +41,17 @@ const Line = struct {
     }
 
     fn insert_string(self: *Line, string: []const u8, col: u32) !void {
+        if (col <= self.indent) {
+            var indent: u32 = 0;
+
+            for (string) |char| {
+                if (char != ' ') break;
+                indent += 1;
+            }
+
+            self.indent += indent;
+        }
+
         try self.content.extend_insert(string, col);
     }
 
@@ -139,6 +150,7 @@ pub const Buffer = struct {
             10,
             allocator,
         );
+
         buffer.foreground_changes = foreground_changes;
         buffer.background_changes = background_changes;
         buffer.lines = try Vec(Line).init(
@@ -442,7 +454,7 @@ fn enter(ptr: *anyopaque, _: []const []const u8) !void {
     }
 
     const new_cursor = Cursor.init(line.indent, self.cursor.y + 1);
-    const indent = line.indent;
+    const indent = if (self.cursor.x >= line.indent) line.indent else 0;
 
     try self.lines.insert(
         try Line.init(
@@ -673,4 +685,4 @@ fn space(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
     try self.insert_string(" ");
-}
+} // This file was saved by vide

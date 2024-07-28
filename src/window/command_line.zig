@@ -93,15 +93,6 @@ pub const CommandLine = struct {
     }
 
     pub fn deactive(self: *CommandLine) !void {
-        for (0..self.content.len() + PREFIX.len) |i| {
-            try self.foreground_changes.push(
-                Change.remove(
-                    @intCast(i),
-                    self.size.y,
-                ),
-            );
-        }
-
         self.selection_active = false;
         const boundary = math.sort(self.cursor, self.selection);
 
@@ -113,12 +104,12 @@ pub const CommandLine = struct {
                 ),
             );
         }
-
-        self.cursor = @intCast(PREFIX.len);
-        self.content.clear();
     }
 
     pub fn active(self: *CommandLine) !void {
+        self.cursor = @intCast(PREFIX.len);
+        self.content.clear();
+
         try self.background_changes.push(
             Change.add_background(
                 self.cursor,
@@ -130,6 +121,42 @@ pub const CommandLine = struct {
             try self.foreground_changes.push(
                 Change.add_char(
                     PREFIX[i],
+                    @intCast(i),
+                    self.size.y,
+                ),
+            );
+        }
+
+        for (PREFIX.len..self.size.x) |i| {
+            try self.foreground_changes.push(
+                Change.remove(
+                    @intCast(i),
+                    self.size.y,
+                ),
+            );
+        }
+    }
+
+    pub fn show(self: *CommandLine, args: []const []const u8) !void {
+        var offset: u32 = 0;
+
+        for (args) |string| {
+            for (string) |char| {
+                try self.foreground_changes.push(
+                    Change.add_char(
+                        char,
+                        offset,
+                        self.size.y,
+                    ),
+                );
+
+                offset += 1;
+            }
+        }
+
+        for (offset..self.size.x) |i| {
+            try self.foreground_changes.push(
+                Change.remove(
                     @intCast(i),
                     self.size.y,
                 ),

@@ -42,7 +42,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const font = try TrueType.init(
-        22,
+        25,
         "RecMonoLinearNerdFont-Regular.ttf",
         allocator,
     );
@@ -95,20 +95,20 @@ pub fn main() !void {
 
     const frame_wait = 1000 / window.frame_rate;
 
-    for (testing) |c| {
-        try window.key_input(c);
-        window.handle.get_events();
-        try window.update();
-
-        std.time.sleep(1000000 * frame_wait);
-        try swapchain.wait();
-    }
-
-    // while (window.state != .Closing) {
+    // for (testing) |c| {
+    //     try window.key_input(c);
     //     window.handle.get_events();
     //     try window.update();
 
     //     std.time.sleep(1000000 * frame_wait);
     //     try swapchain.wait();
     // }
+
+    while (window.state != .Closing) {
+        window.handle.get_events();
+        try window.update();
+
+        std.time.sleep(1000000 * frame_wait);
+        try swapchain.wait();
+    }
 }
