@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 const check = @import("result.zig").check;
 
 const Allocator = std.mem.Allocator;

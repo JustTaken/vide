@@ -1,12 +1,17 @@
 const std = @import("std");
-const c = @import("bind.zig").c;
 
-const math = @import("math.zig");
-const util = @import("util.zig");
+pub const c = @cImport({
+    @cInclude("wayland-client.h");
+    @cInclude("xdg-shell.h");
+    @cInclude("protocol.h");
+});
+
+const util = @import("util");
+const math = util.math;
 
 const Allocator = std.mem.Allocator;
 const Window = @import("window/core.zig").Core(Wayland);
-const VkInstanceDispatch = @import("vulkan/instance.zig").Dispatch;
+const VkInstance = @import("vulkan").instance.Instance;
 
 var libwaylandclient: LibWaylandClient = undefined;
 
@@ -224,32 +229,6 @@ pub const Wayland = struct {
 
         c.wl_surface_commit(window.handle.surface);
         _ = libwaylandclient.wl_display_roundtrip(window.handle.display);
-    }
-
-    pub fn get_surface(
-        self: *const Wayland,
-        instance: c.VkInstance,
-        dispatch: *const VkInstanceDispatch,
-    ) !c.VkSurfaceKHR {
-        const vkCreateWaylandSurfaceKHR = @as(
-            c.PFN_vkCreateWaylandSurfaceKHR,
-            @ptrCast(dispatch.vkGetInstanceProcAddr(
-                instance,
-                "vkCreateWaylandSurfaceKHR",
-            )),
-        ) orelse return error.FunctionNotFound;
-
-        const info = c.VkWaylandSurfaceCreateInfoKHR{
-            .sType = c.VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-            .display = self.display,
-            .surface = self.surface,
-        };
-
-        var surface: c.VkSurfaceKHR = undefined;
-
-        _ = vkCreateWaylandSurfaceKHR(instance, &info, null, &surface);
-
-        return surface;
     }
 
     pub fn update_surface(self: *const Wayland) void {

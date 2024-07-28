@@ -1,19 +1,19 @@
 const std = @import("std");
-const math = @import("../math.zig");
-const util = @import("../util.zig");
+const util = @import("util");
+const math = util.math;
 
-const Vec = @import("../collections.zig").Vec;
-const FixedVec = @import("../collections.zig").FixedVec;
-const Cursor = @import("../collections.zig").Cursor;
+const Vec = util.collections.Vec;
+const FixedVec = util.collections.FixedVec;
+const Cursor = util.collections.Cursor;
 const Buffer = @import("buffer.zig").Buffer;
 const CommandLine = @import("command_line.zig").CommandLine;
 const CommandHandler = @import("command.zig").CommandHandler;
-const Size = @import("../math.zig").Vec2D;
-const Painter = @import("../vulkan/painter.zig").Painter;
+const Size = math.Vec2D;
+const Painter = @import("../painter.zig").Painter;
 const Fn = @import("command.zig").Fn;
+const Listener = util.Listener;
 
 const Instant = std.time.Instant;
-
 const Allocator = std.mem.Allocator;
 
 pub const State = enum {
@@ -52,15 +52,6 @@ pub const Change = struct {
             .x = x,
             .y = y,
         };
-    }
-};
-
-pub const ResizeListener = struct {
-    ptr: *anyopaque,
-    f: *const fn (*anyopaque, *const Size) void,
-
-    fn listen(self: *ResizeListener, size: *const Size) void {
-        self.f(self.ptr, size);
     }
 };
 
@@ -165,7 +156,7 @@ pub fn Core(Backend: type) type {
         handle: Backend,
 
         commander: Commander,
-        listeners: FixedVec(ResizeListener, 2),
+        listeners: FixedVec(Listener, 2),
         foreground_changes: Vec(Change),
         background_changes: Vec(Change),
 
@@ -203,7 +194,7 @@ pub fn Core(Backend: type) type {
             const self = try allocator.create(Self);
             try Backend.init(self);
 
-            self.listeners = FixedVec(ResizeListener, 2).init();
+            self.listeners = FixedVec(Listener, 2).init();
             self.buffers = try Cursor(Buffer).init(5, allocator);
             self.background_changes = try Vec(Change).init(20, allocator);
             self.foreground_changes = try Vec(Change).init(20, allocator);
@@ -319,7 +310,7 @@ pub fn Core(Backend: type) type {
             self.change = false;
         }
 
-        pub fn add_listener(self: *Self, listener: ResizeListener) !void {
+        pub fn add_listener(self: *Self, listener: Listener) !void {
             try self.listeners.push(listener);
         }
 

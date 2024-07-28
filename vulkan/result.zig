@@ -1,4 +1,4 @@
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 
 pub const Result = error{
     NotReady,

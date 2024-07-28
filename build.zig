@@ -4,6 +4,21 @@ pub fn build(builder: *Builder) void {
     const target = builder.standardTargetOptions(.{});
     const optimize = builder.standardOptimizeOption(.{});
 
+    const util = builder.createModule(.{
+        .root_source_file = builder.path("util/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const vulkan = builder.createModule(.{
+        .root_source_file = builder.path("vulkan/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "util", .module = util },
+        },
+    });
+
     const main = builder.addExecutable(.{
         .name = "vide",
         .root_source_file = builder.path("src/main.zig"),
@@ -11,12 +26,14 @@ pub fn build(builder: *Builder) void {
         .optimize = optimize,
     });
 
+    main.root_module.addImport("util", util);
+    main.root_module.addImport("vulkan", vulkan);
+
     main.linkLibC();
     main.linkSystemLibrary("freetype");
 
     scan_wayland_xml(builder, "private-code", "include/xdg-shell.c");
     scan_wayland_xml(builder, "client-header", "include/xdg-shell.h");
-
     add_shader(builder, "vert");
     add_shader(builder, "frag");
 

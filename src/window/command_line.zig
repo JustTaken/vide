@@ -1,13 +1,14 @@
 const std = @import("std");
-const util = @import("../util.zig");
-const math = @import("../math.zig");
+const util = @import("util");
+const math = util.math;
 
 const Allocator = std.mem.Allocator;
-const Vec = @import("../collections.zig").Vec;
-const Fn = @import("command.zig").Fn;
-const Cursor = @import("../math.zig").Vec2D;
-const Size = @import("../math.zig").Vec2D;
+
 const Change = @import("core.zig").Change;
+const Fn = @import("command.zig").Fn;
+const Vec = util.collections.Vec;
+const Cursor = math.Vec2D;
+const Size = math.Vec2D;
 
 const PREFIX = " > ";
 

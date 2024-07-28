@@ -1,10 +1,15 @@
 const std = @import("std");
-const c = @import("bind.zig").c;
-const math = @import("math.zig");
-const util = @import("util.zig");
+
+const c = @cImport({
+    @cInclude("ft2build.h");
+    @cInclude("freetype/freetype.h");
+});
+
+const util = @import("util");
+const math = util.math;
 
 const Allocator = std.mem.Allocator;
-const FixedVec = @import("collections.zig").FixedVec;
+const FixedVec = util.collections.FixedVec;
 
 const Size = math.Vec2D;
 const Offset = math.Vec2D;

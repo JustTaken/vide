@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 
 const check = @import("result.zig").check;
 
@@ -18,6 +18,7 @@ pub const Dispatch = struct {
     vkGetPhysicalDeviceMemoryProperties: *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void,
     vkGetPhysicalDeviceFormatProperties: *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void,
     vkDestroySurfaceKHR: *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void,
+    vkCreateWaylandSurfaceKHR: *const fn (c.VkInstance, *const c.VkWaylandSurfaceCreateInfoKHR, ?*const c.VkAllocationCallbacks, ?*c.VkSurfaceKHR) callconv(.C) void,
     vkDestroyInstance: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void,
 
     fn init(library: *std.DynLib, instance: c.VkInstance) !Dispatch {
@@ -52,8 +53,10 @@ pub const Instance = struct {
     dispatch: Dispatch,
 
     pub fn init(Backend: type, backend: *const Backend) !Instance {
-        var library = try std.DynLib.open("libvulkan.so");
-        const vkCreateInstance = (library.lookup(
+        var self: Instance = undefined;
+        self.library = try std.DynLib.open("libvulkan.so");
+
+        const vkCreateInstance = (self.library.lookup(
             c.PFN_vkCreateInstance,
             "vkCreateInstance",
         ) orelse return error.PFN_vkCreateInstanceNotFound) orelse
@@ -85,17 +88,27 @@ pub const Instance = struct {
             .pApplicationInfo = &application_info,
         };
 
-        var instance: c.VkInstance = undefined;
-        try check(vkCreateInstance(&instance_create_info, null, &instance));
+        try check(vkCreateInstance(&instance_create_info, null, &self.handle));
 
-        const dispatch = try Dispatch.init(&library, instance);
+        self.dispatch = try Dispatch.init(&self.library, self.handle);
+        self.create_surface(backend.display, backend.surface);
 
-        return Instance{
-            .library = library,
-            .handle = instance,
-            .dispatch = dispatch,
-            .surface = try backend.get_surface(instance, &dispatch),
+        return self;
+    }
+
+    fn create_surface(self: *Instance, display: *anyopaque, surface: *anyopaque) void {
+        const info = c.VkWaylandSurfaceCreateInfoKHR{
+            .sType = c.VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
+            .display = @ptrCast(display),
+            .surface = @ptrCast(surface),
         };
+
+        _ = self.dispatch.vkCreateWaylandSurfaceKHR(
+            self.handle,
+            &info,
+            null,
+            &self.surface,
+        );
     }
 
     pub fn deinit(self: *Instance) void {

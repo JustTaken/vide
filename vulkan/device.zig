@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 const Instance = @import("instance.zig").Instance;
 const check = @import("result.zig").check;
 

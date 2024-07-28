@@ -1,11 +1,11 @@
 const std = @import("std");
-const math = @import("../math.zig");
-const util = @import("../util.zig");
+const util = @import("util");
+const math = util.math;
 
 const Allocator = std.mem.Allocator;
 
 const Change = @import("core.zig").Change;
-const Vec = @import("../collections.zig").Vec;
+const Vec = util.collections.Vec;
 const Fn = @import("command.zig").Fn;
 
 const Rect = math.Rect;
@@ -685,4 +685,20 @@ fn space(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
     try self.insert_string(" ");
-} // This file was saved by vide
+}
+
+test "Next line" {
+    var foreground_changes = try Vec(Change).init(4, std.testing.allocator);
+    var background_changes = try Vec(Change).init(4, std.testing.allocator);
+
+    var buffer = Buffer.init(
+        "test",
+        "This is a test\nThis is a test\n",
+        &foreground_changes,
+        &background_changes,
+        Length.init(30, 30),
+        std.testing.allocator,
+    );
+
+    try next_line(&buffer, &.{});
+}

@@ -1,6 +1,5 @@
 const std = @import("std");
-const util = @import("util.zig");
-const copy = util.copy;
+const util = @import("lib.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -62,7 +61,7 @@ pub fn Vec(T: type) type {
             ) catch return Error.AllocationFail;
             const count = self.len();
 
-            copy(T, self.items, new);
+            util.copy(T, self.items, new);
             self.allocator.free(self.items.ptr[0..self.capacity]);
 
             self.items.ptr = new.ptr;
@@ -75,7 +74,7 @@ pub fn Vec(T: type) type {
 
             if (self.capacity <= new_len) try self.resize(new_len * 2);
 
-            copy(T, items, self.items[self.items.len..]);
+            util.copy(T, items, self.items[self.items.len..]);
 
             self.items.len = new_len;
         }
@@ -92,8 +91,8 @@ pub fn Vec(T: type) type {
                     new_len,
                 ) catch return Error.AllocationFail;
 
-                copy(T, self.items[0..index], new);
-                copy(T, self.items[index..], new[index + 1 ..]);
+                util.copy(T, self.items[0..index], new);
+                util.copy(T, self.items[index..], new[index + 1 ..]);
 
                 self.allocator.free(self.items.ptr[0..self.capacity]);
 
@@ -134,8 +133,8 @@ pub fn Vec(T: type) type {
                     new_len,
                 ) catch return Error.AllocationFail;
 
-                copy(T, self.items[0..index], new);
-                copy(T, self.items[index..], new[index + other_len ..]);
+                util.copy(T, self.items[0..index], new);
+                util.copy(T, self.items[index..], new[index + other_len ..]);
 
                 self.allocator.free(self.items.ptr[0..self.capacity]);
 
@@ -152,7 +151,7 @@ pub fn Vec(T: type) type {
                 );
             }
 
-            copy(T, items, self.items[index..]);
+            util.copy(T, items, self.items[index..]);
         }
 
         pub fn range(
@@ -202,7 +201,7 @@ pub fn Vec(T: type) type {
         }
 
         pub fn remove(self: *Self, index: usize) void {
-            copy(T, self.items[index + 1 ..], self.items[index..]);
+            util.copy(T, self.items[index + 1 ..], self.items[index..]);
             self.items.len -= 1;
         }
 

@@ -1,6 +1,6 @@
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 const check = @import("result.zig").check;
-const util = @import("../util.zig");
+const util = @import("util");
 
 const Device = @import("device.zig").Device;
 const GraphicsPipeline = @import("graphics_pipeline.zig").GraphicsPipeline;
@@ -8,7 +8,7 @@ const DescriptorSet = @import("graphics_pipeline.zig").DescriptorSet;
 const CommandPool = @import("command_pool.zig").CommandPool;
 const Buffer = @import("buffer.zig").Buffer;
 
-const Size = @import("../math.zig").Vec2D;
+const Size = util.math.Vec2D;
 
 pub const Texture = struct {
     image: c.VkImage,

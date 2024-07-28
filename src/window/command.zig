@@ -1,6 +1,6 @@
 const std = @import("std");
-const util = @import("../util.zig");
-const HashSet = @import("../collections.zig").HashSet;
+const util = @import("util");
+const HashSet = util.collections.HashSet;
 
 const Allocator = std.mem.Allocator;
 

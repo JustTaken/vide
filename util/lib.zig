@@ -1,6 +1,17 @@
 const std = @import("std");
+pub const math = @import("math.zig");
+pub const collections = @import("collections.zig");
 
 const Allocator = std.mem.Allocator;
+
+pub const Listener = struct {
+    ptr: *anyopaque,
+    f: *const fn (*anyopaque, *const anyopaque) void,
+
+    pub fn listen(self: *Listener, data: *const anyopaque) void {
+        self.f(self.ptr, data);
+    }
+};
 
 pub fn read_file(path: []const u8, buffer: []u8) !u32 {
     const file = try std.fs.cwd().openFile(path, .{});

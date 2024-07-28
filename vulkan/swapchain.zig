@@ -1,5 +1,6 @@
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 const std = @import("std");
+const util = @import("util");
 
 const check = @import("result.zig").check;
 const Result = @import("result.zig").Result;
@@ -11,9 +12,8 @@ const Device = @import("device.zig").Device;
 const GraphicsPipeline = @import("graphics_pipeline.zig").GraphicsPipeline;
 const Image = @import("image.zig").Texture;
 
-const ResizeListener = @import("../window/core.zig").ResizeListener;
-
-const Size = @import("../math.zig").Vec2D;
+const Listener = util.Listener;
+const Size = util.math.Vec2D;
 
 pub const Swapchain = struct {
     device: *const Device,
@@ -273,14 +273,14 @@ pub const Swapchain = struct {
         return index;
     }
 
-    fn resize(ptr: *anyopaque, size: *const Size) void {
+    fn resize(ptr: *anyopaque, data: *const anyopaque) void {
         const self: *Swapchain = @ptrCast(@alignCast(ptr));
 
-        self.size.move(size);
+        self.size.move(@ptrCast(@alignCast(data)));
     }
 
-    pub fn resize_listener(self: *Swapchain) ResizeListener {
-        return ResizeListener{
+    pub fn resize_listener(self: *Swapchain) Listener {
+        return Listener{
             .f = resize,
             .ptr = self,
         };

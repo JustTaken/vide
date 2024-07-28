@@ -1,7 +1,7 @@
 const std = @import("std");
-const c = @import("../bind.zig").c;
+const c = @import("bind.zig").c;
 const check = @import("result.zig").check;
-const util = @import("../util.zig");
+const util = @import("util");
 
 const Device = @import("device.zig").Device;
 const Descriptor = @import("graphics_pipeline.zig").Descriptor;

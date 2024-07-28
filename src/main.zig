@@ -3,12 +3,12 @@ const std = @import("std");
 const TrueType = @import("truetype.zig").TrueType;
 const Window = @import("window/core.zig").Core;
 const Wayland = @import("wayland.zig").Wayland;
-const Instance = @import("vulkan/instance.zig").Instance;
-const Device = @import("vulkan/device.zig").Device;
-const GraphicsPipeline = @import("vulkan/graphics_pipeline.zig").GraphicsPipeline;
-const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
-const CommandPool = @import("vulkan/command_pool.zig").CommandPool;
-const Painter = @import("vulkan/painter.zig").Painter;
+const Instance = @import("vulkan").instance.Instance;
+const Device = @import("vulkan").device.Device;
+const GraphicsPipeline = @import("vulkan").graphics_pipeline.GraphicsPipeline;
+const Swapchain = @import("vulkan").swapchain.Swapchain;
+const CommandPool = @import("vulkan").command_pool.CommandPool;
+const Painter = @import("painter.zig").Painter;
 
 const testing: []const []const u8 = &.{
     "a",   "b",   "c",   "d",   "e",   "f",   "g",   "h",   "i",   "j",   "k",   "l",   "m",   "n",   "o",   "p",   "q",   "r",   "s",   "t",   "u",   "v",   "w",   "x",   "y",     "z",   "A",   "B",     "C",     "D",   "E",   "F",   "G",   "H", "I", "J", "K",   "L", "M", "N", "O", "P", "Q",   "R",   "S",   "T",   "U",     "V",     "W",   "X",   "Y",   "Z",

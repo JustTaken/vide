@@ -1,23 +1,27 @@
-const c = @import("../bind.zig").c;
 const std = @import("std");
-const check = @import("result.zig").check;
-const math = @import("../math.zig");
 
-const Device = @import("device.zig").Device;
-const Swapchain = @import("swapchain.zig").Swapchain;
-const Buffer = @import("buffer.zig").Buffer;
-const Uniform = @import("buffer.zig").Uniform;
-const Vec = @import("buffer.zig").Vec;
-const Texture = @import("image.zig").Texture;
-const GraphicsPipeline = @import("graphics_pipeline.zig").GraphicsPipeline;
-const CommandPool = @import("command_pool.zig").CommandPool;
-const Font = @import("../truetype.zig").TrueType;
+const check = @import("vulkan").result.check;
+const vulkan = @import("vulkan");
+const util = @import("util");
+const math = util.math;
 
-const WindowBuffer = @import("../window/buffer.zig").Buffer;
-const Change = @import("../window/core.zig").Change;
-const CommandLine = @import("../window/command_line.zig").CommandLine;
-const ResizeListener = @import("../window/core.zig").ResizeListener;
-const Size = @import("../math.zig").Vec2D;
+const c = vulkan.bind.c;
+
+const Font = @import("truetype.zig").TrueType;
+const Device = vulkan.device.Device;
+const Swapchain = vulkan.swapchain.Swapchain;
+const Buffer = vulkan.buffer.Buffer;
+const Uniform = vulkan.buffer.Uniform;
+const Vec = vulkan.buffer.Vec;
+const Texture = vulkan.image.Texture;
+const GraphicsPipeline = vulkan.graphics_pipeline.GraphicsPipeline;
+const CommandPool = vulkan.command_pool.CommandPool;
+
+const WindowBuffer = @import("window/buffer.zig").Buffer;
+const Change = @import("window/core.zig").Change;
+const CommandLine = @import("window/command_line.zig").CommandLine;
+const Listener = @import("util").Listener;
+const Size = math.Vec2D;
 
 const Allocator = std.mem.Allocator;
 
@@ -383,8 +387,9 @@ pub const Painter = struct {
         try check(device.dispatch.vkEndCommandBuffer(command_buffer));
     }
 
-    fn resize(ptr: *anyopaque, size: *const Size) void {
+    fn resize(ptr: *anyopaque, data: *const anyopaque) void {
         const self: *Painter = @ptrCast(@alignCast(ptr));
+        const size: *const Size = @ptrCast(@alignCast(data));
 
         self.uniform.data[0] = math.divide(size.y, size.x);
         const new_size = Size.init(
@@ -403,8 +408,8 @@ pub const Painter = struct {
         self.background.new_size(new_size);
     }
 
-    pub fn resize_listener(self: *Painter) ResizeListener {
-        return ResizeListener{
+    pub fn resize_listener(self: *Painter) Listener {
+        return Listener{
             .f = resize,
             .ptr = self,
         };
