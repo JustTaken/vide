@@ -21,20 +21,34 @@ pub const Buffer = struct {
     ) !Buffer {
         var buffer: Buffer = undefined;
 
-        const info = c.VkBufferCreateInfo {
+        const info = c.VkBufferCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .size = @sizeOf(T) * len,
             .usage = usage,
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
         };
 
-        try check(device.dispatch.vkCreateBuffer(device.handle, &info, null, &buffer.handle));
+        try check(device.dispatch.vkCreateBuffer(
+            device.handle,
+            &info,
+            null,
+            &buffer.handle,
+        ));
 
         var requirements: c.VkMemoryRequirements = undefined;
-        device.dispatch.vkGetBufferMemoryRequirements(device.handle, buffer.handle, &requirements);
+        device.dispatch.vkGetBufferMemoryRequirements(
+            device.handle,
+            buffer.handle,
+            &requirements,
+        );
 
         buffer.memory = try device.allocate_memory(properties, &requirements);
-        try check(device.dispatch.vkBindBufferMemory(device.handle, buffer.handle, buffer.memory, 0));
+        try check(device.dispatch.vkBindBufferMemory(
+            device.handle,
+            buffer.handle,
+            buffer.memory,
+            0,
+        ));
 
         return buffer;
     }
@@ -52,12 +66,28 @@ pub const Buffer = struct {
 
         var dst: []T = undefined;
 
-        const staging_buffer = try init(T, len, c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, device);
-        try check(device.dispatch.vkMapMemory(device.handle, staging_buffer.memory, 0, len * @sizeOf(T), 0, @ptrCast(&dst)));
+        const staging_buffer = try init(
+            T,
+            len,
+            c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            device,
+        );
+        try check(
+            device.dispatch.vkMapMemory(
+                device.handle,
+                staging_buffer.memory,
+                0,
+                len * @sizeOf(T),
+                0,
+                @ptrCast(&dst),
+            ),
+        );
 
         util.copy(T, data, dst);
 
-        const copy_info = c.VkBufferCopy {
+        const copy_info = c.VkBufferCopy{
             .srcOffset = 0,
             .dstOffset = 0,
             .size = @sizeOf(T) * len,
@@ -65,7 +95,13 @@ pub const Buffer = struct {
 
         const command_buffer = try command_pool.allocate_buffer(device);
 
-        device.dispatch.vkCmdCopyBuffer(command_buffer.handle, staging_buffer.handle, buffer.handle, 1, &copy_info);
+        device.dispatch.vkCmdCopyBuffer(
+            command_buffer.handle,
+            staging_buffer.handle,
+            buffer.handle,
+            1,
+            &copy_info,
+        );
         device.dispatch.vkUnmapMemory(device.handle, staging_buffer.memory);
 
         try command_buffer.end(device);
@@ -97,19 +133,33 @@ pub const Uniform = struct {
         const len: u32 = @intCast(data.len);
 
         uniform.handle = try Buffer.init(
-            T, 
+            T,
             len,
-            c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 
-            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
-            device, 
+            c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            device,
         );
 
-        try check(device.dispatch.vkMapMemory(device.handle, uniform.handle.memory, 0, len * @sizeOf(T), 0, @ptrCast(&uniform.data)));
+        try check(device.dispatch.vkMapMemory(
+            device.handle,
+            uniform.handle.memory,
+            0,
+            len * @sizeOf(T),
+            0,
+            @ptrCast(&uniform.data),
+        ));
 
         util.copy(T, data, uniform.data);
 
         uniform.set = try descriptor.get_set(device);
-        uniform.set.update_buffer(T, uniform.handle.handle, binding, len, device);
+        uniform.set.update_buffer(
+            T,
+            uniform.handle.handle,
+            binding,
+            len,
+            device,
+        );
 
         return uniform;
     }
@@ -118,4 +168,3 @@ pub const Uniform = struct {
         self.handle.deinit(device);
     }
 };
-

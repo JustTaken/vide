@@ -82,18 +82,34 @@ const Commander = struct {
 
     fn init(T: type, allocator: Allocator) !Commander {
         var self: Commander = undefined;
+
         self.commands = FixedVec(CommandHandler, 3).init();
         self.key = FixedVec(u8, 20).init();
 
-        try self.commands.push(try CommandHandler.init(T.commands_handle(), T.string_commands(), allocator));
-        try self.commands.push(try CommandHandler.init(Buffer.commands(), &.{}, allocator));
-        try self.commands.push(try CommandHandler.init(CommandLine.commands(), &.{}, allocator));
+        try self.commands.push(
+            try CommandHandler.init(
+                T.commands_handle(),
+                T.string_commands(),
+                allocator,
+            ),
+        );
+
+        try self.commands.push(
+            try CommandHandler.init(Buffer.commands(), &.{}, allocator),
+        );
+
+        try self.commands.push(
+            try CommandHandler.init(CommandLine.commands(), &.{}, allocator),
+        );
 
         return self;
     }
 
     fn set(self: *Commander, typ: CommandHandlerType, ptr: *anyopaque) void {
-        const command_handler: *CommandHandler = self.commands.get(@intFromEnum(typ)) catch unreachable;
+        const command_handler: *CommandHandler = self.commands.get(
+            @intFromEnum(typ),
+        ) catch unreachable;
+
         command_handler.set(ptr);
     }
 
@@ -101,8 +117,16 @@ const Commander = struct {
         return self.commands.get(@intFromEnum(typ)) catch unreachable;
     }
 
-    fn execute_key(self: *Commander, key: []const u8, primary: CommandHandlerType, fallback: CommandHandlerType) !void {
-        if (!self.get(primary).execute_key(key)) if (!self.get(fallback).execute_key(key)) return error.CommandFail;
+    fn execute_key(
+        self: *Commander,
+        key: []const u8,
+        primary: CommandHandlerType,
+        fallback: CommandHandlerType,
+    ) !void {
+        if (!self.get(primary).execute_key(key)) {
+            if (!self.get(fallback).execute_key(key))
+                return error.CommandFail;
+        }
 
         self.key.clear();
         self.primary = primary;
@@ -110,22 +134,28 @@ const Commander = struct {
         try self.key.extend(key);
     }
 
-    fn execute_string(self: *Commander, string: []const u8, primary: CommandHandlerType, fallback: CommandHandlerType) !void {
-        if (!self.get(primary).execute_string(string)) 
-            if (!self.get(fallback).execute_string(string)) 
+    fn execute_string(
+        self: *Commander,
+        string: []const u8,
+        primary: CommandHandlerType,
+        fallback: CommandHandlerType,
+    ) !void {
+        if (!self.get(primary).execute_string(string)) {
+            if (!self.get(fallback).execute_string(string))
                 return error.CommandFail;
+        }
     }
 
     fn repeat(self: *Commander) !void {
-        if (!self.get(self.primary).execute_key(self.key.elements())) 
-            if (!self.get(self.fallback).execute_key(self.key.elements())) 
+        if (!self.get(self.primary).execute_key(self.key.elements()))
+            if (!self.get(self.fallback).execute_key(self.key.elements()))
                 return error.CommandFail;
     }
 
     fn deinit(self: *Commander) void {
-       for (self.commands.elements()) |c| {
-           c.deinit();
-       }
+        for (self.commands.elements()) |c| {
+            c.deinit();
+        }
     }
 };
 
@@ -159,7 +189,6 @@ pub fn Core(Backend: type) type {
 
         repeating: bool,
 
-        profiler: u64,
         allocator: Allocator,
 
         const Self = @This();
@@ -169,7 +198,7 @@ pub fn Core(Backend: type) type {
             height: u32,
             font_scale: f32,
             font_ratio: f32,
-            allocator: Allocator
+            allocator: Allocator,
         ) !*Self {
             const self = try allocator.create(Self);
             try Backend.init(self);
@@ -178,10 +207,12 @@ pub fn Core(Backend: type) type {
             self.buffers = try Cursor(Buffer).init(5, allocator);
             self.background_changes = try Vec(Change).init(20, allocator);
             self.foreground_changes = try Vec(Change).init(20, allocator);
+
             self.commander = try Commander.init(Self, allocator);
+
             self.delay = 200 * 1000 * 1000;
             self.rate = 20 * 1000 * 1000;
-            self.frame_rate = 10;
+            self.frame_rate = 60;
             self.repeating = false;
 
             self.ratios[0] = math.divide(height, width);
@@ -190,12 +221,28 @@ pub fn Core(Backend: type) type {
             self.size = Size.init(width, height);
 
             const cels = Size.init(
-                @intFromFloat(1.0 / (self.ratios[0] * self.ratios[1] * self.ratios[2])),
-                @intFromFloat(1.0 / self.ratios[1])
+                @intFromFloat(
+                    1.0 / (self.ratios[0] * self.ratios[1] * self.ratios[2]),
+                ),
+                @intFromFloat(1.0 / self.ratios[1]),
             );
 
-            try self.buffers.push(try Buffer.init("scratch", "This is a scratch buffer\n", &self.foreground_changes, &self.background_changes, cels.sub(&Size.init(0, 1)), allocator));
-            self.command_line = try CommandLine.init(cels, &self.foreground_changes, &self.background_changes, allocator);
+            try self.buffers.push(
+                try Buffer.init(
+                    "scratch",
+                    "This is a scratch buffer\n",
+                    &self.foreground_changes,
+                    &self.background_changes,
+                    cels.sub(&Size.init(0, 1)),
+                    allocator,
+                ),
+            );
+            self.command_line = try CommandLine.init(
+                cels,
+                &self.foreground_changes,
+                &self.background_changes,
+                allocator,
+            );
 
             self.commander.set(.Window, self);
             self.commander.set(.Buffer, self.buffers.get_mut());
@@ -204,7 +251,6 @@ pub fn Core(Backend: type) type {
             self.state = State.Running;
             self.mode = .Normal;
             self.change = true;
-            self.profiler = 0;
             self.allocator = allocator;
 
             return self;
@@ -223,7 +269,10 @@ pub fn Core(Backend: type) type {
                 self.ratios[0] = math.divide(height, width);
 
                 const cels = Size.init(
-                    @intFromFloat(1.0 / (self.ratios[0] * self.ratios[1] * self.ratios[2])),
+                    @intFromFloat(
+                        1.0 /
+                            (self.ratios[0] * self.ratios[1] * self.ratios[2]),
+                    ),
                     @intFromFloat(1.0 / self.ratios[1]),
                 );
 
@@ -239,10 +288,12 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn update(self: *Self) !void {
-            const start = try std.time.Instant.now();
-            if (self.repeating and start.since(self.last_fetch_delay) >= self.delay) {
-                if (start.since(self.last_fetch_rate) >= self.rate) {
-                    self.last_fetch_rate = start;
+            const now = try std.time.Instant.now();
+            if (self.repeating and now.since(
+                self.last_fetch_delay,
+            ) >= self.delay) {
+                if (now.since(self.last_fetch_rate) >= self.rate) {
+                    self.last_fetch_rate = now;
 
                     self.commander.repeat() catch {
                         self.repeating = false;
@@ -255,18 +306,17 @@ pub fn Core(Backend: type) type {
 
             if (!self.change) return;
 
-            try self.painter.update(self.foreground_changes.items, self.background_changes.items);
+            try self.painter.update(
+                self.foreground_changes.items,
+                self.background_changes.items,
+            );
             try self.painter.draw();
 
             self.foreground_changes.clear();
             self.background_changes.clear();
 
-
             self.handle.update_surface();
             self.change = false;
-
-            const end = try std.time.Instant.now();
-            self.profiler += end.since(start);
         }
 
         pub fn add_listener(self: *Self, listener: ResizeListener) !void {
@@ -274,20 +324,26 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn key_input(self: *Self, key_string: []const u8) !void {
-            const start = try std.time.Instant.now();
             self.repeating = false;
 
-            if (key_string.len != 1) self.commander.execute_key(key_string, .Window, if (self.mode == .Normal) .Buffer else .CommandLine) catch return
-            else if (self.mode == .Normal) try self.buffers.get_mut().insert_string(key_string)
-            else try self.command_line.insert_string(key_string);
+            if (key_string.len != 1) {
+                self.commander.execute_key(
+                    key_string,
+                    .Window,
+                    if (self.mode == .Normal) .Buffer else .CommandLine,
+                ) catch return;
+            } else if (self.mode == .Normal) {
+                try self.buffers.get_mut().insert_string(key_string);
+            } else {
+                try self.command_line.insert_string(key_string);
+            }
 
-            const end = try std.time.Instant.now();
+            const now = try std.time.Instant.now();
 
-            self.last_fetch_delay = end;
-            self.last_fetch_rate = end;
+            self.last_fetch_delay = now;
+            self.last_fetch_rate = now;
             self.repeating = true;
             self.change = true;
-            self.profiler += end.since(start);
         }
 
         pub fn key_up(self: *Self) void {
@@ -295,10 +351,10 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn foreground(
-            self: *Buffer, 
-            T: type, 
-            ptr: *T, 
-            f: fn (*T, u8, usize, usize) anyerror!void
+            self: *Buffer,
+            T: type,
+            ptr: *T,
+            f: fn (*T, u8, usize, usize) anyerror!void,
         ) !void {
             for (self.foreground_changes.items) |fore| {
                 try f(ptr, @intCast(fore.char), fore.cursor.x, fore.cursor.y);
@@ -309,9 +365,9 @@ pub fn Core(Backend: type) type {
 
         pub fn background(
             self: *Buffer,
-            T: type, 
-            ptr: *T, 
-            f: fn (*T, u8, usize, usize) anyerror!void
+            T: type,
+            ptr: *T,
+            f: fn (*T, u8, usize, usize) anyerror!void,
         ) !void {
             for (self.background_changes.items) |back| {
                 try f(ptr, @intCast(back.char), back.cursor.x, back.cursor.y);
@@ -321,29 +377,26 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-           self.buffers.deinit();
-           self.command_line.deinit();
-           self.handle.deinit();
-
-           self.commander.deinit();
-
-           std.debug.print("time taken: {} ms\n", .{self.profiler / 1000000});
-           self.allocator.destroy(self);
+            self.buffers.deinit();
+            self.command_line.deinit();
+            self.handle.deinit();
+            self.commander.deinit();
+            self.allocator.destroy(self);
         }
 
         fn commands_handle() []const Fn {
-            return &[_]Fn {
-                Fn { .f = enter,        .string = "Ret" },
-                Fn { .f = esc,          .string = "Esc" },
-                Fn { .f = command_mode, .string = "A-x" },
+            return &[_]Fn{
+                Fn{ .f = enter, .string = "Ret" },
+                Fn{ .f = esc, .string = "Esc" },
+                Fn{ .f = command_mode, .string = "A-x" },
             };
         }
 
         fn string_commands() []const Fn {
-            return &[_]Fn {
-                Fn { .f = open_file,        .string = "open" },
-                Fn { .f = open_buffer,      .string = "buffer" },
-                Fn { .f = save,             .string = "save" },
+            return &[_]Fn{
+                Fn{ .f = open_file, .string = "open" },
+                Fn{ .f = open_buffer, .string = "buffer" },
+                Fn{ .f = save, .string = "save" },
             };
         }
 
@@ -355,7 +408,11 @@ pub fn Core(Backend: type) type {
 
                 const content = self.command_line.chars();
                 try self.command_line.deactive();
-                self.commander.execute_string(content, .Window, .Buffer) catch return;
+                self.commander.execute_string(
+                    content,
+                    .Window,
+                    .Buffer,
+                ) catch return;
             } else {
                 return error.DoNotHandle;
             }
@@ -404,7 +461,6 @@ pub fn Core(Backend: type) type {
             open_buffer(ptr, args) catch {
                 const self: *Self = @ptrCast(@alignCast(ptr));
 
-
                 const file = try std.fs.cwd().openFile(args[0], .{});
                 defer file.close();
 
@@ -412,15 +468,28 @@ pub fn Core(Backend: type) type {
                 const content = try self.allocator.alloc(u8, end_pos);
                 defer self.allocator.free(content);
 
-                if (try file.read(content) != end_pos) return error.IncompleteContetent;
+                if (try file.read(content) != end_pos)
+                    return error.IncompleteContetent;
 
                 const cels = Size.init(
-                    @intFromFloat(1.0 / (self.ratios[0] * self.ratios[1] * self.ratios[2])),
-                    @intFromFloat(1.0 / self.ratios[1])
+                    @intFromFloat(
+                        1.0 /
+                            (self.ratios[0] * self.ratios[1] * self.ratios[2]),
+                    ),
+                    @intFromFloat(1.0 / self.ratios[1]),
                 );
 
                 try self.buffers.get_mut().hide();
-                try self.buffers.push(try Buffer.init(args[0], content, &self.foreground_changes, &self.background_changes, cels.sub(&Size.init(0, 1)), self.allocator));
+                try self.buffers.push(
+                    try Buffer.init(
+                        args[0],
+                        content,
+                        &self.foreground_changes,
+                        &self.background_changes,
+                        cels.sub(&Size.init(0, 1)),
+                        self.allocator,
+                    ),
+                );
                 self.commander.set(.Buffer, self.buffers.get_mut());
             };
         }
@@ -429,7 +498,10 @@ pub fn Core(Backend: type) type {
             const self: *Self = @ptrCast(@alignCast(ptr));
             const buffer = self.buffers.get_mut();
 
-            const file = try std.fs.cwd().openFile(buffer.name, .{ .mode = .write_only });
+            const file = try std.fs.cwd().openFile(
+                buffer.name,
+                .{ .mode = .write_only },
+            );
             defer file.close();
 
             const content = try buffer.content(self.allocator);
@@ -439,4 +511,3 @@ pub fn Core(Backend: type) type {
         }
     };
 }
-

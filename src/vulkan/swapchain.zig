@@ -46,31 +46,56 @@ pub const Swapchain = struct {
         var swapchain: Swapchain = undefined;
         swapchain.handle = null;
 
-        const semaphore_info = c.VkSemaphoreCreateInfo {
+        const semaphore_info = c.VkSemaphoreCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         };
 
-        const fence_info = c.VkFenceCreateInfo {
+        const fence_info = c.VkFenceCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .flags = c.VK_FENCE_CREATE_SIGNALED_BIT,
         };
 
-        try check(device.dispatch.vkCreateSemaphore(device.handle, &semaphore_info, null, &swapchain.render_finished));
-        try check(device.dispatch.vkCreateFence(device.handle, &fence_info, null, &swapchain.in_flight));
+        try check(device.dispatch.vkCreateSemaphore(
+            device.handle,
+            &semaphore_info,
+            null,
+            &swapchain.render_finished,
+        ));
+
+        try check(device.dispatch.vkCreateFence(
+            device.handle,
+            &fence_info,
+            null,
+            &swapchain.in_flight,
+        ));
 
         swapchain.device = device;
         const capabilities = device.physical_device.capabilities;
-        swapchain.image_count = if (capabilities.maxImageCount > 0) @min(capabilities.minImageCount + 1, capabilities.maxImageCount)
-        else capabilities.minImageCount + 1;
+        swapchain.image_count = if (capabilities.maxImageCount > 0)
+            @min(capabilities.minImageCount + 1, capabilities.maxImageCount)
+        else
+            capabilities.minImageCount + 1;
 
         swapchain.render_pass = render_pass;
         swapchain.surface = surface;
         swapchain.size = size;
         swapchain.format = format;
 
-        swapchain.images = try allocator.alloc(c.VkImage, swapchain.image_count);
-        swapchain.image_views = try allocator.alloc(c.VkImageView, swapchain.image_count);
-        swapchain.framebuffers = try allocator.alloc(c.VkFramebuffer, swapchain.image_count);
+        swapchain.images = try allocator.alloc(
+            c.VkImage,
+            swapchain.image_count,
+        );
+
+        swapchain.image_views = try allocator.alloc(
+            c.VkImageView,
+            swapchain.image_count,
+        );
+
+        swapchain.framebuffers = try allocator.alloc(
+            c.VkFramebuffer,
+            swapchain.image_count,
+        );
+
         swapchain.allocator = allocator;
 
         try swapchain.recreate();
@@ -82,7 +107,7 @@ pub const Swapchain = struct {
     fn recreate(self: *Swapchain) !void {
         const device = self.device;
         const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
-        const extent = c.VkExtent2D {
+        const extent = c.VkExtent2D{
             .width = self.size.x,
             .height = self.size.y,
         };
@@ -102,16 +127,14 @@ pub const Swapchain = struct {
 
         const old_swapchain = self.handle;
 
-        const info = c.VkSwapchainCreateInfoKHR {
+        const info = c.VkSwapchainCreateInfoKHR{
             .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface = self.surface,
             .minImageCount = self.image_count,
             .imageFormat = self.format.format,
             .imageColorSpace = self.format.colorSpace,
             .imageExtent = extent,
-            .imageSharingMode = if (family_count > 1) c.VK_SHARING_MODE_CONCURRENT else c.VK_SHARING_MODE_EXCLUSIVE,
             .presentMode = present_mode,
-            .preTransform = device.physical_device.capabilities.currentTransform,
             .clipped = c.VK_TRUE,
             .imageArrayLayers = 1,
             .compositeAlpha = c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
@@ -119,25 +142,63 @@ pub const Swapchain = struct {
             .queueFamilyIndexCount = family_count,
             .pQueueFamilyIndices = &unique_families[0],
             .oldSwapchain = old_swapchain,
+
+            .preTransform = device.physical_device.capabilities.currentTransform,
+
+            .imageSharingMode = if (family_count > 1)
+                c.VK_SHARING_MODE_CONCURRENT
+            else
+                c.VK_SHARING_MODE_EXCLUSIVE,
         };
 
-        try check(device.dispatch.vkCreateSwapchainKHR(device.handle, &info, null, &self.handle));
-        try check(device.dispatch.vkGetSwapchainImagesKHR(device.handle, self.handle, &self.image_count, self.images.ptr));
+        try check(device.dispatch.vkCreateSwapchainKHR(
+            device.handle,
+            &info,
+            null,
+            &self.handle,
+        ));
+
+        try check(device.dispatch.vkGetSwapchainImagesKHR(
+            device.handle,
+            self.handle,
+            &self.image_count,
+            self.images.ptr,
+        ));
 
         if (old_swapchain) |_| {
             for (0..self.image_count) |i| {
-                device.dispatch.vkDestroyImageView(device.handle, self.image_views[i], null);
-                device.dispatch.vkDestroyFramebuffer(device.handle, self.framebuffers[i], null);
+                device.dispatch.vkDestroyImageView(
+                    device.handle,
+                    self.image_views[i],
+                    null,
+                );
+                device.dispatch.vkDestroyFramebuffer(
+                    device.handle,
+                    self.framebuffers[i],
+                    null,
+                );
             }
 
-            device.dispatch.vkDestroySemaphore(device.handle, self.image_available, null);
-            device.dispatch.vkDestroySwapchainKHR(device.handle, old_swapchain, null);
+            device.dispatch.vkDestroySemaphore(
+                device.handle,
+                self.image_available,
+                null,
+            );
+            device.dispatch.vkDestroySwapchainKHR(
+                device.handle,
+                old_swapchain,
+                null,
+            );
         }
 
         for (0..self.image_count) |i| {
-            self.image_views[i] = try Image.view_init(self.images[i], self.format.format, device);
+            self.image_views[i] = try Image.view_init(
+                self.images[i],
+                self.format.format,
+                device,
+            );
 
-            const framebuffer_info = c.VkFramebufferCreateInfo {
+            const framebuffer_info = c.VkFramebufferCreateInfo{
                 .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass = self.render_pass,
                 .attachmentCount = 1,
@@ -147,28 +208,65 @@ pub const Swapchain = struct {
                 .layers = 1,
             };
 
-            try check(device.dispatch.vkCreateFramebuffer(device.handle, &framebuffer_info, null, &self.framebuffers[i]));
+            try check(device.dispatch.vkCreateFramebuffer(
+                device.handle,
+                &framebuffer_info,
+                null,
+                &self.framebuffers[i],
+            ));
         }
 
-        const semaphore_info = c.VkSemaphoreCreateInfo {
+        const semaphore_info = c.VkSemaphoreCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         };
 
-        try check(device.dispatch.vkCreateSemaphore(device.handle, &semaphore_info, null, &self.image_available));
+        try check(device.dispatch.vkCreateSemaphore(
+            device.handle,
+            &semaphore_info,
+            null,
+            &self.image_available,
+        ));
     }
 
     pub fn wait(self: *const Swapchain) !void {
-        try check(self.device.dispatch.vkWaitForFences(self.device.handle, 1, &self.in_flight, c.VK_TRUE, 0xFFFFFF));
-        try check(self.device.dispatch.vkQueueWaitIdle(self.device.queues[0]));
+        try check(self.device.dispatch.vkWaitForFences(
+            self.device.handle,
+            1,
+            &self.in_flight,
+            c.VK_TRUE,
+            0xFFFFFF,
+        ));
+
+        try check(self.device.dispatch.vkQueueWaitIdle(
+            self.device.queues[0],
+        ));
     }
 
     pub fn image_index(self: *Swapchain) !u32 {
         var index: u32 = 0;
-        var result = self.device.dispatch.vkAcquireNextImageKHR(self.device.handle, self.handle, 0xFFFFFF, self.image_available, null, &index);
+        var result = self.device.dispatch.vkAcquireNextImageKHR(
+            self.device.handle,
+            self.handle,
+            0xFFFFFF,
+            self.image_available,
+            null,
+            &index,
+        );
 
-        while (result == c.VK_ERROR_OUT_OF_DATE_KHR or result == c.VK_SUBOPTIMAL_KHR) {
+        while (result ==
+            c.VK_ERROR_OUT_OF_DATE_KHR or result ==
+            c.VK_SUBOPTIMAL_KHR)
+        {
             try self.recreate();
-            result = self.device.dispatch.vkAcquireNextImageKHR(self.device.handle, self.handle, 0xFFFFFF, self.image_available, null, &index);
+
+            result = self.device.dispatch.vkAcquireNextImageKHR(
+                self.device.handle,
+                self.handle,
+                0xFFFFFF,
+                self.image_available,
+                null,
+                &index,
+            );
         }
 
         try check(result);
@@ -182,7 +280,7 @@ pub const Swapchain = struct {
     }
 
     pub fn resize_listener(self: *Swapchain) ResizeListener {
-        return ResizeListener {
+        return ResizeListener{
             .f = resize,
             .ptr = self,
         };
@@ -193,17 +291,39 @@ pub const Swapchain = struct {
         const count = self.framebuffers.len;
 
         for (0..count) |i| {
-            device.dispatch.vkDestroyImageView(device.handle, self.image_views[i], null);
-            device.dispatch.vkDestroyFramebuffer(device.handle, self.framebuffers[i], null);
+            device.dispatch.vkDestroyImageView(
+                device.handle,
+                self.image_views[i],
+                null,
+            );
+
+            device.dispatch.vkDestroyFramebuffer(
+                device.handle,
+                self.framebuffers[i],
+                null,
+            );
         }
 
         self.allocator.free(self.framebuffers);
         self.allocator.free(self.image_views);
 
-        device.dispatch.vkDestroySemaphore(device.handle, self.render_finished, null);
-        device.dispatch.vkDestroySemaphore(device.handle, self.image_available, null);
+        device.dispatch.vkDestroySemaphore(
+            device.handle,
+            self.render_finished,
+            null,
+        );
+
+        device.dispatch.vkDestroySemaphore(
+            device.handle,
+            self.image_available,
+            null,
+        );
+
         device.dispatch.vkDestroyFence(device.handle, self.in_flight, null);
-        device.dispatch.vkDestroySwapchainKHR(device.handle, self.handle, null);
+        device.dispatch.vkDestroySwapchainKHR(
+            device.handle,
+            self.handle,
+            null,
+        );
     }
 };
-

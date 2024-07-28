@@ -3,7 +3,7 @@ pub const Vec2D = struct {
     y: u32,
 
     pub inline fn init(x: u32, y: u32) Vec2D {
-        return Vec2D {
+        return Vec2D{
             .x = x,
             .y = y,
         };
@@ -14,7 +14,7 @@ pub const Vec2D = struct {
     }
 
     pub inline fn greater(self: *const Vec2D, other: *const Vec2D) bool {
-        return (self.y > other.y) or (self.y == other.y and self.x >= other.x);
+        return self.y > other.y or (self.y == other.y and self.x >= other.x);
     }
 
     pub inline fn move(self: *Vec2D, to: *const Vec2D) void {
@@ -23,7 +23,7 @@ pub const Vec2D = struct {
     }
 
     pub inline fn sub(self: *const Vec2D, other: *const Vec2D) Vec2D {
-        return Vec2D {
+        return Vec2D{
             .x = self.x - other.x,
             .y = self.y - other.y,
         };
@@ -39,6 +39,11 @@ pub const Vec2D = struct {
         return self;
     }
 
+    pub inline fn sort(self: *const Vec2D, other: *const Vec2D) [2]Vec2D {
+        if (self.greater(other)) return [_]Vec2D{ other.copy(), self.copy() };
+        return [_]Vec2D{ self.copy(), other.copy() };
+    }
+
     pub inline fn copy(self: *const Vec2D) Vec2D {
         return .{
             .x = self.x,
@@ -52,7 +57,7 @@ pub const Rect = struct {
     size: Vec2D,
 
     pub inline fn init(coord: Vec2D, size: Vec2D) Rect {
-        return Rect {
+        return Rect{
             .coord = coord,
             .size = size,
         };
@@ -98,11 +103,17 @@ pub const Rect = struct {
 
     pub fn contains(self: *const Rect, coord: *const Vec2D) bool {
         const e = self.end();
-        return self.coord.y <= coord.y and e.y > coord.y and self.coord.x <= coord.x and e.x > coord.x;
+        const x_inside = self.coord.x <= coord.x and e.x > coord.x;
+        const y_inside = self.coord.y <= coord.y and e.y > coord.y;
+
+        return x_inside and y_inside;
     }
 
     pub inline fn end(self: *const Rect) Vec2D {
-        return Vec2D.init(self.coord.x + self.size.x, self.coord.y + self.size.y);
+        return Vec2D.init(
+            self.coord.x + self.size.x,
+            self.coord.y + self.size.y,
+        );
     }
 };
 
@@ -123,13 +134,18 @@ pub inline fn from_fixed(fixed: isize) u32 {
 }
 
 pub inline fn min(a: u32, b: u32) u32 {
-  if (a > b) return b;
-  return a;
+    if (a > b) return b;
+    return a;
+}
+
+pub inline fn sort(a: u32, b: u32) [2]u32 {
+    if (a > b) return [_]u32{ b, a };
+    return [_]u32{ a, b };
 }
 
 pub inline fn max(a: u32, b: u32) u32 {
-  if (a > b) return a;
-  return b;
+    if (a > b) return a;
+    return b;
 }
 
 pub inline fn clamp(a: u32, c: u32, b: u32) u32 {
@@ -137,9 +153,8 @@ pub inline fn clamp(a: u32, c: u32, b: u32) u32 {
 }
 
 pub inline fn divide(numerator: u32, denumerator: u32) f32 {
-  const f_numerator: f32 = @floatFromInt(numerator);
-  const f_denumerator: f32 = @floatFromInt(denumerator);
+    const f_numerator: f32 = @floatFromInt(numerator);
+    const f_denumerator: f32 = @floatFromInt(denumerator);
 
-  return f_numerator / f_denumerator;
+    return f_numerator / f_denumerator;
 }
-

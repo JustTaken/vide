@@ -36,11 +36,19 @@ const DrawElement = struct {
             Vertex,
             capacity,
             c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             device,
         );
 
-        try check(device.dispatch.vkMapMemory(device.handle, element.buffer.memory, 0, capacity * @sizeOf(Vertex), 0, @ptrCast(&element.data)));
+        try check(device.dispatch.vkMapMemory(
+            device.handle,
+            element.buffer.memory,
+            0,
+            capacity * @sizeOf(Vertex),
+            0,
+            @ptrCast(&element.data),
+        ));
         element.data.len = capacity;
 
         for (0..rows) |i| {
@@ -104,10 +112,12 @@ pub const Painter = struct {
         const scale = math.divide(size.y, size.x);
 
         const rows: u32 = @intFromFloat(1.0 / font.scale);
-        const cols: u32 = @intFromFloat(1.0 / (scale * font.scale * font.ratio));
+        const cols: u32 = @intFromFloat(
+            1.0 / (scale * font.scale * font.ratio),
+        );
         const cols_f: f32 = @floatFromInt(cols);
 
-        const uniform_data = [_]f32 {
+        const uniform_data = [_]f32{
             scale,
             font.scale,
             font.ratio,
@@ -115,7 +125,9 @@ pub const Painter = struct {
             font.height(),
             font.glyph_width(),
             font.glyph_height(),
-            cols_f, 11.0, 3.0,
+            cols_f,
+            11.0,
+            3.0,
         };
 
         painter.uniform = try Uniform.init(
@@ -136,17 +148,18 @@ pub const Painter = struct {
 
             for (0..rows) |i| {
                 for (0..cols) |j| {
-                    painter.vertex_offsets[i * cols + j] = (i * cols + j) * @sizeOf(Vertex);
+                    painter.vertex_offsets[i * cols + j] =
+                        (i * cols + j) * @sizeOf(Vertex);
                 }
             }
         }
 
-
-        const indices = [_]u16 { 0, 1, 2, 1, 3, 2 };
+        const indices = [_]u16{ 0, 1, 2, 1, 3, 2 };
         painter.index = try Buffer.with_data(
             u16,
             &indices,
-            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
             c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             device,
             command_pool,
@@ -164,7 +177,11 @@ pub const Painter = struct {
         return painter;
     }
 
-    pub fn update(self: *Painter, foreground: []const Change, background: []const Change) !void {
+    pub fn update(
+        self: *Painter,
+        foreground: []const Change,
+        background: []const Change,
+    ) !void {
         for (foreground) |fore| {
             self.foreground.push(fore.char, fore.x, fore.y);
         }
@@ -181,10 +198,15 @@ pub const Painter = struct {
         const device = self.swapchain.device;
 
         try self.record_draw(index);
-        try check(device.dispatch.vkResetFences(device.handle, 1, &self.swapchain.in_flight));
+        try check(device.dispatch.vkResetFences(
+            device.handle,
+            1,
+            &self.swapchain.in_flight,
+        ));
 
-        const wait_dst_stage: u32 = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        const submit_info = c.VkSubmitInfo {
+        const wait_dst_stage: u32 =
+            c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        const submit_info = c.VkSubmitInfo{
             .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &self.swapchain.image_available,
@@ -195,10 +217,14 @@ pub const Painter = struct {
             .pSignalSemaphores = &self.swapchain.render_finished,
         };
 
-        try check(device.dispatch.vkQueueSubmit(device.queues[0], 1, &submit_info, self.swapchain.in_flight));
+        try check(device.dispatch.vkQueueSubmit(
+            device.queues[0],
+            1,
+            &submit_info,
+            self.swapchain.in_flight,
+        ));
 
-
-        const present_info = c.VkPresentInfoKHR {
+        const present_info = c.VkPresentInfoKHR{
             .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .swapchainCount = 1,
             .pSwapchains = &self.swapchain.handle,
@@ -207,8 +233,10 @@ pub const Painter = struct {
             .pImageIndices = &index,
         };
 
-        try check(device.dispatch.vkQueuePresentKHR(device.queues[1], &present_info));
-
+        try check(device.dispatch.vkQueuePresentKHR(
+            device.queues[1],
+            &present_info,
+        ));
     }
 
     fn record_draw(self: *Painter, index: u32) !void {
@@ -218,26 +246,26 @@ pub const Painter = struct {
 
         const size = self.swapchain.size;
 
-        const begin_info = c.VkCommandBufferBeginInfo {
+        const begin_info = c.VkCommandBufferBeginInfo{
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         };
 
-        const clear_value = c.VkClearValue {
+        const clear_value = c.VkClearValue{
             .color = .{
                 .float32 = .{ 0.0, 0.0, 0.0, 1.0 },
             },
         };
 
-        const render_pass_info = c.VkRenderPassBeginInfo {
+        const render_pass_info = c.VkRenderPassBeginInfo{
             .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass = self.swapchain.render_pass,
             .framebuffer = framebuffer,
-            .renderArea = c.VkRect2D {
-                .offset = c.VkOffset2D {
+            .renderArea = c.VkRect2D{
+                .offset = c.VkOffset2D{
                     .x = 0,
                     .y = 0,
                 },
-                .extent = c.VkExtent2D {
+                .extent = c.VkExtent2D{
                     .width = size.x,
                     .height = size.y,
                 },
@@ -246,7 +274,7 @@ pub const Painter = struct {
             .clearValueCount = 1,
         };
 
-        const viewport = c.VkViewport {
+        const viewport = c.VkViewport{
             .x = 0.0,
             .y = 0.0,
             .width = @floatFromInt(size.x),
@@ -255,35 +283,100 @@ pub const Painter = struct {
             .maxDepth = 1.0,
         };
 
-        const scissor = c.VkRect2D {
-            .offset = c.VkOffset2D {
+        const scissor = c.VkRect2D{
+            .offset = c.VkOffset2D{
                 .x = 0,
                 .y = 0,
             },
-            .extent = c.VkExtent2D {
+            .extent = c.VkExtent2D{
                 .width = size.x,
                 .height = size.y,
             },
         };
 
-        try check(device.dispatch.vkBeginCommandBuffer(command_buffer, &begin_info));
+        try check(device.dispatch.vkBeginCommandBuffer(
+            command_buffer,
+            &begin_info,
+        ));
 
-        device.dispatch.vkCmdBeginRenderPass(command_buffer, &render_pass_info, c.VK_SUBPASS_CONTENTS_INLINE);
+        device.dispatch.vkCmdBeginRenderPass(
+            command_buffer,
+            &render_pass_info,
+            c.VK_SUBPASS_CONTENTS_INLINE,
+        );
+
         device.dispatch.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
         device.dispatch.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-        device.dispatch.vkCmdBindPipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.handle);
-        device.dispatch.vkCmdBindIndexBuffer(command_buffer, self.index.handle, 0, c.VK_INDEX_TYPE_UINT16);
-        device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 0, 1, &.{ self.uniform.set.handle }, 0, &0);
-        device.dispatch.vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.layout, 1, 1, &.{ self.font_atlas.set.handle }, 0, &0);
+
+        device.dispatch.vkCmdBindPipeline(
+            command_buffer,
+            c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self.graphics_pipeline.handle,
+        );
+
+        device.dispatch.vkCmdBindIndexBuffer(
+            command_buffer,
+            self.index.handle,
+            0,
+            c.VK_INDEX_TYPE_UINT16,
+        );
+
+        device.dispatch.vkCmdBindDescriptorSets(
+            command_buffer,
+            c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self.graphics_pipeline.layout,
+            0,
+            1,
+            &.{self.uniform.set.handle},
+            0,
+            &0,
+        );
+
+        device.dispatch.vkCmdBindDescriptorSets(
+            command_buffer,
+            c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self.graphics_pipeline.layout,
+            1,
+            1,
+            &.{self.font_atlas.set.handle},
+            0,
+            &0,
+        );
 
         {
-            device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, 1, &self.foreground.buffer.handle, &self.vertex_offsets[0]);
-            device.dispatch.vkCmdDrawIndexed(command_buffer, 6, @intCast(self.foreground.data.len), 0, 0, 0);
+            device.dispatch.vkCmdBindVertexBuffers(
+                command_buffer,
+                0,
+                1,
+                &self.foreground.buffer.handle,
+                &self.vertex_offsets[0],
+            );
+            device.dispatch.vkCmdDrawIndexed(
+                command_buffer,
+                6,
+                @intCast(self.foreground.data.len),
+                0,
+                0,
+                0,
+            );
         }
 
         {
-            device.dispatch.vkCmdBindVertexBuffers(command_buffer, 0, 1, &self.background.buffer.handle, &self.vertex_offsets[0]);
-            device.dispatch.vkCmdDrawIndexed(command_buffer, 6, @intCast(self.background.data.len), 0, 0, 0);
+            device.dispatch.vkCmdBindVertexBuffers(
+                command_buffer,
+                0,
+                1,
+                &self.background.buffer.handle,
+                &self.vertex_offsets[0],
+            );
+            device.dispatch.vkCmdDrawIndexed(
+                command_buffer,
+                6,
+                @intCast(self.background.data.len),
+                0,
+                0,
+                0,
+            );
         }
 
         device.dispatch.vkCmdEndRenderPass(command_buffer);
@@ -295,7 +388,12 @@ pub const Painter = struct {
 
         self.uniform.data[0] = math.divide(size.y, size.x);
         const new_size = Size.init(
-            @intFromFloat(1.0 / (self.uniform.data[0] * self.uniform.data[1] * self.uniform.data[2])),
+            @intFromFloat(
+                1.0 /
+                    (self.uniform.data[0] *
+                    self.uniform.data[1] *
+                    self.uniform.data[2]),
+            ),
             @intFromFloat(1.0 / (self.uniform.data[1])),
         );
 
@@ -306,7 +404,7 @@ pub const Painter = struct {
     }
 
     pub fn resize_listener(self: *Painter) ResizeListener {
-        return ResizeListener {
+        return ResizeListener{
             .f = resize,
             .ptr = self,
         };

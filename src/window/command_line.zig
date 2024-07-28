@@ -20,8 +20,13 @@ pub const CommandLine = struct {
     foreground_changes: *Vec(Change),
     background_changes: *Vec(Change),
 
-    pub fn init(size: Size, foreground_changes: *Vec(Change), background_changes: *Vec(Change), allocator: Allocator) !CommandLine {
-        return CommandLine {
+    pub fn init(
+        size: Size,
+        foreground_changes: *Vec(Change),
+        background_changes: *Vec(Change),
+        allocator: Allocator,
+    ) !CommandLine {
+        return CommandLine{
             .content = try Vec(u8).init(size.x, allocator),
             .foreground_changes = foreground_changes,
             .background_changes = background_changes,
@@ -44,7 +49,13 @@ pub const CommandLine = struct {
         try self.content.extend_insert(string, self.cursor - l);
 
         for (self.cursor - l..self.content.len()) |i| {
-            try self.foreground_changes.push(Change.add_char(self.content.items[i], @intCast(i + l), self.size.y));
+            try self.foreground_changes.push(
+                Change.add_char(
+                    self.content.items[i],
+                    @intCast(i + l),
+                    self.size.y,
+                ),
+            );
         }
 
         self.selection_active = false;
@@ -53,11 +64,12 @@ pub const CommandLine = struct {
 
     fn move_cursor(self: *CommandLine, to: u32) !void {
         {
-            const start = if (self.cursor > self.selection) self.selection else self.cursor;
-            const end = if (self.cursor > self.selection) self.cursor else self.selection;
+            const boundary = math.sort(self.cursor, self.selection);
 
-            for (start..end + 1) |i| {
-                try self.background_changes.push(Change.remove(@intCast(i), self.size.y));
+            for (boundary[0]..boundary[1] + 1) |i| {
+                try self.background_changes.push(
+                    Change.remove(@intCast(i), self.size.y),
+                );
             }
         }
 
@@ -67,26 +79,39 @@ pub const CommandLine = struct {
         }
 
         {
-            const start = if (self.cursor > self.selection) self.selection else self.cursor;
-            const end = if (self.cursor > self.selection) self.cursor else self.selection;
+            const boundary = math.sort(self.cursor, self.selection);
 
-            for (start..end + 1) |i| {
-                try self.background_changes.push(Change.add_background(@intCast(i), self.size.y));
+            for (boundary[0]..boundary[1] + 1) |i| {
+                try self.background_changes.push(
+                    Change.add_background(
+                        @intCast(i),
+                        self.size.y,
+                    ),
+                );
             }
         }
     }
 
     pub fn deactive(self: *CommandLine) !void {
         for (0..self.content.len() + PREFIX.len) |i| {
-            try self.foreground_changes.push(Change.remove(@intCast(i), self.size.y));
+            try self.foreground_changes.push(
+                Change.remove(
+                    @intCast(i),
+                    self.size.y,
+                ),
+            );
         }
 
         self.selection_active = false;
-        const start = if (self.cursor > self.selection) self.selection else self.cursor;
-        const end = if (self.cursor > self.selection) self.cursor else self.selection;
+        const boundary = math.sort(self.cursor, self.selection);
 
-        for (start..end + 1) |i| {
-            try self.background_changes.push(Change.remove(@intCast(i), self.size.y));
+        for (boundary[0]..boundary[1] + 1) |i| {
+            try self.background_changes.push(
+                Change.remove(
+                    @intCast(i),
+                    self.size.y,
+                ),
+            );
         }
 
         self.cursor = @intCast(PREFIX.len);
@@ -94,9 +119,21 @@ pub const CommandLine = struct {
     }
 
     pub fn active(self: *CommandLine) !void {
-        try self.background_changes.push(Change.add_background(self.cursor, self.size.y));
+        try self.background_changes.push(
+            Change.add_background(
+                self.cursor,
+                self.size.y,
+            ),
+        );
+
         for (0..PREFIX.len) |i| {
-            try self.foreground_changes.push(Change.add_char(PREFIX[i], @intCast(i), self.size.y));
+            try self.foreground_changes.push(
+                Change.add_char(
+                    PREFIX[i],
+                    @intCast(i),
+                    self.size.y,
+                ),
+            );
         }
     }
 
@@ -109,14 +146,14 @@ pub const CommandLine = struct {
     }
 
     pub fn commands() []const Fn {
-        return &[_]Fn {
-            Fn { .f = space,  .string = "Spc" },
-            Fn { .f = prev_char, .string = "C-b" },
-            Fn { .f = next_char, .string = "C-f" },
-            Fn { .f = command_end, .string = "C-e" },
-            Fn { .f = command_start, .string = "C-a" },
-            Fn { .f = delete, .string = "C-d" },
-            Fn { .f = selection_mode,  .string = "C-Spc" },
+        return &[_]Fn{
+            Fn{ .f = space, .string = "Spc" },
+            Fn{ .f = prev_char, .string = "C-b" },
+            Fn{ .f = next_char, .string = "C-f" },
+            Fn{ .f = command_end, .string = "C-e" },
+            Fn{ .f = command_start, .string = "C-a" },
+            Fn{ .f = delete, .string = "C-d" },
+            Fn{ .f = selection_mode, .string = "C-Spc" },
         };
     }
 };
@@ -173,23 +210,40 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
     const len: u32 = @intCast(PREFIX.len);
 
     const prev_len = self.content.len();
-    const start = if (self.selection > self.cursor) self.cursor - len else self.selection - len ;
-    var end = if (self.cursor > self.selection) self.cursor - len else self.selection - len;
+    var boundary = math.sort(self.cursor, self.selection);
 
-    if (end < prev_len) end += 1;
+    boundary[0] -= len;
+    boundary[1] -= len;
 
-    for (end..prev_len) |i| {
-        self.content.items[start + i - end] = self.content.items[i];
-        try self.foreground_changes.push(Change.add_char(self.content.items[i], @intCast(start + len + i - end), self.size.y));
+    if (boundary[1] < prev_len) boundary[1] += 1;
+
+    for (boundary[1]..prev_len) |i| {
+        self.content.put(
+            self.content.items[i],
+            boundary[0] + i - boundary[1],
+        );
+
+        try self.foreground_changes.push(
+            Change.add_char(
+                self.content.items[i],
+                @intCast(boundary[0] + len + i - boundary[1]),
+                self.size.y,
+            ),
+        );
     }
 
-    self.content.items.len -= end - start;
+    self.content.items.len -= boundary[1] - boundary[0];
 
     for (self.content.len()..prev_len) |i| {
-        try self.foreground_changes.push(Change.remove(@intCast(i + len), self.size.y));
+        try self.foreground_changes.push(
+            Change.remove(
+                @intCast(i + len),
+                self.size.y,
+            ),
+        );
     }
 
     self.selection_active = false;
 
-    try self.move_cursor(start + len);
+    try self.move_cursor(boundary[0] + len);
 }

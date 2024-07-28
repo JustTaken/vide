@@ -1,6 +1,7 @@
 const std = @import("std");
 const c = @import("bind.zig").c;
 const math = @import("math.zig");
+const util = @import("util.zig");
 
 const Allocator = std.mem.Allocator;
 const FixedVec = @import("collections.zig").FixedVec;
@@ -30,7 +31,7 @@ const Bitmap = struct {
 
         @memset(bitmap, 0);
 
-        return Bitmap {
+        return Bitmap{
             .handle = bitmap,
             .offsets = try allocator.alloc(Offset, GLYPH_COUNT),
             .size = size,
@@ -42,11 +43,11 @@ const Bitmap = struct {
         @setRuntimeSafety(false);
 
         for (0..from.size.y) |y| {
-            const self_line_offset = (offset.y + y) * self.size.x;
-            const from_line_offset = y * from.size.x;
+            const self_offset = (offset.y + y) * self.size.x + offset.x;
+            const from_offset = y * from.size.x;
 
             for (0..from.size.x) |x| {
-                self.handle[offset.x + x + self_line_offset] = from.handle[x + from_line_offset];
+                self.handle[x + self_offset] = from.handle[x + from_offset];
             }
         }
     }
@@ -66,7 +67,7 @@ const Bearing = struct {
     y: i32,
 
     fn init(x: i32, y: i32) Bearing {
-        return Bearing {
+        return Bearing{
             .x = x,
             .y = y,
         };
@@ -103,20 +104,17 @@ const Face = struct {
             math.from_fixed(face.*.size.*.metrics.height),
         );
 
-        return Face {
+        return Face{
             .handle = face,
             .library = library,
             .glyph_size = glyph_size,
             .ascender = math.from_fixed(face.*.size.*.metrics.ascender),
-            .descender = math.from_fixed(- face.*.size.*.metrics.descender),
+            .descender = math.from_fixed(-face.*.size.*.metrics.descender),
             .em = face.*.units_per_EM,
         };
     }
 
-    fn get_glyph(
-        self: *const Face,
-        code: u32
-    ) Glyph {
+    fn get_glyph(self: *const Face, code: u32) Glyph {
         const index = c.FT_Get_Char_Index(self.handle, code);
         const glyph = self.handle.*.glyph;
 
@@ -124,7 +122,7 @@ const Face = struct {
         _ = c.FT_Render_Glyph(glyph, c.FT_RENDER_MODE_NORMAL);
 
         const glyph_bitmap = glyph.*.bitmap;
-        const bitmap = CBitmap {
+        const bitmap = CBitmap{
             .handle = glyph_bitmap.buffer,
             .size = Size.init(glyph_bitmap.width, glyph_bitmap.rows),
         };
@@ -138,7 +136,7 @@ const Face = struct {
             line * (self.glyph_size.y + PADDING),
         );
 
-        return Glyph {
+        return Glyph{
             .bitmap = bitmap,
             .offset = offset,
             .bearing = Bearing.init(glyph.*.bitmap_left, glyph.*.bitmap_top),
@@ -151,7 +149,11 @@ const Face = struct {
 };
 
 fn find_path(name: []const u8, allocator: Allocator) !FixedVec(u8, 100) {
-    const data_home = try std.process.getEnvVarOwned(allocator, "XDG_DATA_HOME");
+    const data_home = try std.process.getEnvVarOwned(
+        allocator,
+        "XDG_DATA_HOME",
+    );
+
     defer allocator.free(data_home);
 
     var path = FixedVec(u8, 100).init();
@@ -175,6 +177,7 @@ fn find_path(name: []const u8, allocator: Allocator) !FixedVec(u8, 100) {
                 try path.push('/');
                 try path.extend(f.name);
                 try path.push(0);
+
                 return path;
             }
         }
@@ -210,15 +213,18 @@ pub const TrueType = struct {
             const index = i - 32;
             const glyph = face.get_glyph(i);
 
-            const insert_offset = Offset {
+            const insert_offset = Offset{
                 .x = math.sum(glyph.offset.x, glyph.bearing.x),
-                .y = glyph.offset.y + face.glyph_size.y - math.sum(face.descender, glyph.bearing.y),
+                .y = glyph.offset.y + face.glyph_size.y - math.sum(
+                    face.descender,
+                    glyph.bearing.y,
+                ),
             };
 
             bitmap.append(&glyph.bitmap, insert_offset);
             bitmap.append_offset(glyph.offset, index);
         }
-         {
+        {
             const i = GLYPH_COUNT;
             const line: u32 = i / COLS;
             const col: u32 = i - line * COLS;
@@ -230,12 +236,14 @@ pub const TrueType = struct {
 
             for (0..face.glyph_size.y + 2) |y| {
                 for (0..face.glyph_size.x + 2) |x| {
-                    bitmap.handle[(y + offset.y - 1) * bitmap.size.x + offset.x + x - 1] = 255;
+                    bitmap.handle[
+                        (y + offset.y - 1) * bitmap.size.x + offset.x + x - 1
+                    ] = 255;
                 }
             }
-         }
+        }
 
-        return TrueType {
+        return TrueType{
             .bitmap = bitmap,
             .glyph_count = GLYPH_COUNT,
             .glyph_size = face.glyph_size,

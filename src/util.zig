@@ -15,11 +15,15 @@ pub fn read_file(path: []const u8, buffer: []u8) !u32 {
 
 pub fn copy(T: type, src: []const T, dst: []T) void {
     @setRuntimeSafety(false);
-
-    const len = src.len;
-
-    for (0..len) |i| {
+    for (0..src.len) |i| {
         dst[i] = src[i];
+    }
+}
+
+pub fn back_copy(T: type, src: []const T, dst: []T) void {
+    @setRuntimeSafety(false);
+    for (0..src.len) |i| {
+        dst[dst.len - i - 1] = src[src.len - i - 1];
     }
 }
 
@@ -53,6 +57,6 @@ pub fn hash(string: []const u8) u32 {
     return h;
 }
 
-pub fn assert(b: bool) error { False }!void {
+pub fn assert(b: bool) error{False}!void {
     if (!b) return error.False;
 }

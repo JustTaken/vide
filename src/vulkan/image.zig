@@ -28,7 +28,7 @@ pub const Texture = struct {
     ) !Texture {
         var texture: Texture = undefined;
 
-        const info = c.VkImageCreateInfo {
+        const info = c.VkImageCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = c.VK_IMAGE_TYPE_2D,
             .mipLevels = 1,
@@ -37,27 +37,54 @@ pub const Texture = struct {
             .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             .samples = c.VK_SAMPLE_COUNT_1_BIT,
-            .usage = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
+            .usage = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                c.VK_IMAGE_USAGE_SAMPLED_BIT,
             .format = format,
-            .extent = c.VkExtent3D {
+            .extent = c.VkExtent3D{
                 .width = size.x,
                 .height = size.y,
                 .depth = 1,
             },
         };
 
-        try check(device.dispatch.vkCreateImage(device.handle, &info, null, &texture.image));
+        try check(device.dispatch.vkCreateImage(
+            device.handle,
+            &info,
+            null,
+            &texture.image,
+        ));
 
         var memory_requirements: c.VkMemoryRequirements = undefined;
-        device.dispatch.vkGetImageMemoryRequirements(device.handle, texture.image, &memory_requirements);
+        device.dispatch.vkGetImageMemoryRequirements(
+            device.handle,
+            texture.image,
+            &memory_requirements,
+        );
 
-        texture.memory = try device.allocate_memory(c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &memory_requirements);
-        try check(device.dispatch.vkBindImageMemory(device.handle, texture.image, texture.memory, 0));
+        texture.memory = try device.allocate_memory(
+            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            &memory_requirements,
+        );
+        try check(device.dispatch.vkBindImageMemory(
+            device.handle,
+            texture.image,
+            texture.memory,
+            0,
+        ));
         texture.view = try view_init(texture.image, format, device);
 
-        try copy_data_to_image(texture.image, data, size, device, command_pool);
+        try copy_data_to_image(
+            texture.image,
+            data,
+            size,
+            device,
+            command_pool,
+        );
 
-        texture.sampler = try sampler_init(c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, device);
+        texture.sampler = try sampler_init(
+            c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            device,
+        );
         texture.set = try graphics_pipeline.descriptors[1].get_set(device);
         texture.set.update_image(texture.view, texture.sampler, 0, device);
         texture.size = size;
@@ -66,7 +93,7 @@ pub const Texture = struct {
     }
 
     fn sampler_init(mode: u32, device: *const Device) !c.VkSampler {
-        const info = c.VkSamplerCreateInfo {
+        const info = c.VkSamplerCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
             .magFilter = c.VK_FILTER_LINEAR,
             .minFilter = c.VK_FILTER_LINEAR,
@@ -86,13 +113,22 @@ pub const Texture = struct {
         };
 
         var handle: c.VkSampler = undefined;
-        try check(device.dispatch.vkCreateSampler(device.handle, &info, null, &handle));
+        try check(device.dispatch.vkCreateSampler(
+            device.handle,
+            &info,
+            null,
+            &handle,
+        ));
 
         return handle;
     }
 
-    pub fn view_init(image: c.VkImage, format: u32, device: *const Device) !c.VkImageView {
-        const sub = c.VkImageSubresourceRange {
+    pub fn view_init(
+        image: c.VkImage,
+        format: u32,
+        device: *const Device,
+    ) !c.VkImageView {
+        const sub = c.VkImageSubresourceRange{
             .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = 0,
             .levelCount = 1,
@@ -100,14 +136,14 @@ pub const Texture = struct {
             .layerCount = 1,
         };
 
-        const comp = c.VkComponentMapping {
+        const comp = c.VkComponentMapping{
             .r = c.VK_COMPONENT_SWIZZLE_IDENTITY,
             .g = c.VK_COMPONENT_SWIZZLE_IDENTITY,
             .b = c.VK_COMPONENT_SWIZZLE_IDENTITY,
             .a = c.VK_COMPONENT_SWIZZLE_IDENTITY,
         };
 
-        const info = c.VkImageViewCreateInfo {
+        const info = c.VkImageViewCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
             .subresourceRange = sub,
@@ -118,7 +154,12 @@ pub const Texture = struct {
         };
 
         var image_view: c.VkImageView = undefined;
-        try check(device.dispatch.vkCreateImageView(device.handle, &info, null, &image_view));
+        try check(device.dispatch.vkCreateImageView(
+            device.handle,
+            &info,
+            null,
+            &image_view,
+        ));
 
         return image_view;
     }
@@ -133,12 +174,26 @@ pub const Texture = struct {
         var dst: []u8 = undefined;
         const len: u32 = @intCast(data.len);
 
-        const buffer = try Buffer.init(u8, len, c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT, c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, device);
-        try check(device.dispatch.vkMapMemory(device.handle, buffer.memory, 0, len * @sizeOf(u8), 0, @ptrCast(&dst)));
+        const buffer = try Buffer.init(
+            u8,
+            len,
+            c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            device,
+        );
+        try check(device.dispatch.vkMapMemory(
+            device.handle,
+            buffer.memory,
+            0,
+            len * @sizeOf(u8),
+            0,
+            @ptrCast(&dst),
+        ));
 
         util.copy(u8, data, dst);
 
-        const sub = c.VkImageSubresourceRange {
+        const sub = c.VkImageSubresourceRange{
             .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
             .baseMipLevel = 0,
             .levelCount = 1,
@@ -146,7 +201,7 @@ pub const Texture = struct {
             .baseArrayLayer = 0,
         };
 
-        const barrier = c.VkImageMemoryBarrier {
+        const barrier = c.VkImageMemoryBarrier{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .oldLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
             .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -158,24 +213,26 @@ pub const Texture = struct {
             .dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT,
         };
 
-        const image_sub = c.VkImageSubresourceLayers {
+        const image_sub = c.VkImageSubresourceLayers{
             .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
             .mipLevel = 0,
             .baseArrayLayer = 0,
             .layerCount = 1,
         };
 
-        const offset = c.VkOffset3D {
-            .x = 0, .y = 0, .z = 0,
+        const offset = c.VkOffset3D{
+            .x = 0,
+            .y = 0,
+            .z = 0,
         };
 
-        const extent = c.VkExtent3D {
+        const extent = c.VkExtent3D{
             .width = size.x,
             .height = size.y,
             .depth = 1,
         };
 
-        const region = c.VkBufferImageCopy {
+        const region = c.VkBufferImageCopy{
             .bufferOffset = 0,
             .bufferRowLength = 0,
             .bufferImageHeight = 0,
@@ -184,7 +241,7 @@ pub const Texture = struct {
             .imageExtent = extent,
         };
 
-        const second_barrier = c.VkImageMemoryBarrier {
+        const second_barrier = c.VkImageMemoryBarrier{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             .newLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -202,7 +259,13 @@ pub const Texture = struct {
             command_buffer.handle,
             c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             c.VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, null, 0, null, 1, &barrier
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &barrier,
         );
 
         device.dispatch.vkCmdCopyBufferToImage(
@@ -210,14 +273,21 @@ pub const Texture = struct {
             buffer.handle,
             image,
             c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1, &region
+            1,
+            &region,
         );
 
         device.dispatch.vkCmdPipelineBarrier(
             command_buffer.handle,
             c.VK_PIPELINE_STAGE_TRANSFER_BIT,
             c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, null, 0, null, 1, &second_barrier
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &second_barrier,
         );
 
         try command_buffer.end(device);
@@ -232,5 +302,3 @@ pub const Texture = struct {
         device.dispatch.vkDestroyImageView(device.handle, self.view, null);
     }
 };
-
-

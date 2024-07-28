@@ -12,10 +12,6 @@ pub const GraphicsPipeline = struct {
     layout: c.VkPipelineLayout,
     render_pass: c.VkRenderPass,
     descriptors: [2]Descriptor,
-    // global_layout: c.VkDescriptorSetLayout,
-    // global_pool: c.VkDescriptorPool,
-    // texture_pool: c.VkDescriptorPool,
-    // texture_layout: c.VkDescriptorSetLayout,
     format: c.VkSurfaceFormatKHR,
 
     pub fn init(
@@ -25,14 +21,32 @@ pub const GraphicsPipeline = struct {
         var graphics_pipeline: GraphicsPipeline = undefined;
         var buffer: [8000]u8 = undefined;
 
-        const vert_module = try create_shader_module(device, "zig-out/shader/vert.spv", &buffer);
-        defer device.dispatch.vkDestroyShaderModule(device.handle, vert_module, null);
+        const vert_module = try create_shader_module(
+            device,
+            "zig-out/shader/vert.spv",
+            &buffer,
+        );
 
-        const frag_module = try create_shader_module(device, "zig-out/shader/frag.spv", &buffer);
-        defer device.dispatch.vkDestroyShaderModule(device.handle, frag_module, null);
+        defer device.dispatch.vkDestroyShaderModule(
+            device.handle,
+            vert_module,
+            null,
+        );
+
+        const frag_module = try create_shader_module(
+            device,
+            "zig-out/shader/frag.spv",
+            &buffer,
+        );
+
+        defer device.dispatch.vkDestroyShaderModule(
+            device.handle,
+            frag_module,
+            null,
+        );
 
         const name = "main";
-        const shader_stage_infos = &[_]c.VkPipelineShaderStageCreateInfo {
+        const shader_stage_infos = &[_]c.VkPipelineShaderStageCreateInfo{
             .{
                 .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
@@ -47,14 +61,17 @@ pub const GraphicsPipeline = struct {
             },
         };
 
-        const dynamic_states = &[_]c.VkDynamicState { c.VK_DYNAMIC_STATE_VIEWPORT, c.VK_DYNAMIC_STATE_SCISSOR };
-        const dynamic_state_info = c.VkPipelineDynamicStateCreateInfo {
+        const dynamic_states = &[_]c.VkDynamicState{
+            c.VK_DYNAMIC_STATE_VIEWPORT,
+            c.VK_DYNAMIC_STATE_SCISSOR,
+        };
+        const dynamic_state_info = c.VkPipelineDynamicStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
             .pDynamicStates = dynamic_states.ptr,
             .dynamicStateCount = dynamic_states.len,
         };
 
-        const binding_descriptions = &[_]c.VkVertexInputBindingDescription {
+        const binding_descriptions = &[_]c.VkVertexInputBindingDescription{
             .{
                 .binding = 0,
                 .stride = @sizeOf(u32) * 4,
@@ -62,7 +79,7 @@ pub const GraphicsPipeline = struct {
             },
         };
 
-        const attribute_descriptions = &[_]c.VkVertexInputAttributeDescription {
+        const attribute_descriptions = &[_]c.VkVertexInputAttributeDescription{
             .{
                 .binding = 0,
                 .location = 0,
@@ -77,7 +94,7 @@ pub const GraphicsPipeline = struct {
             },
         };
 
-        const input_state_info = c.VkPipelineVertexInputStateCreateInfo {
+        const input_state_info = c.VkPipelineVertexInputStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
             .pVertexBindingDescriptions = binding_descriptions.ptr,
             .vertexBindingDescriptionCount = binding_descriptions.len,
@@ -85,13 +102,14 @@ pub const GraphicsPipeline = struct {
             .vertexAttributeDescriptionCount = attribute_descriptions.len,
         };
 
-        const input_assembly_state_info = c.VkPipelineInputAssemblyStateCreateInfo {
+        const input_assembly_state_info =
+            c.VkPipelineInputAssemblyStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
             .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
             .primitiveRestartEnable = c.VK_FALSE,
         };
 
-        const viewport = c.VkViewport {
+        const viewport = c.VkViewport{
             .x = 0.0,
             .y = 0.0,
             .width = 1920.0,
@@ -100,26 +118,23 @@ pub const GraphicsPipeline = struct {
             .maxDepth = 1.0,
         };
 
-        const scissor = c.VkRect2D {
-            .offset = c.VkOffset2D {
-                .x = 0,
-                .y = 0,
-            },
-            .extent = c.VkExtent2D {
-                .width = 1920,
-                .height = 1080,
-            }
-        };
+        const scissor = c.VkRect2D{ .offset = c.VkOffset2D{
+            .x = 0,
+            .y = 0,
+        }, .extent = c.VkExtent2D{
+            .width = 1920,
+            .height = 1080,
+        } };
 
-        const viewport_state_info = c.VkPipelineViewportStateCreateInfo {
+        const viewport_state_info = c.VkPipelineViewportStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
             .viewportCount = 1,
             .pViewports = &viewport,
             .scissorCount = 1,
-            .pScissors = &scissor
+            .pScissors = &scissor,
         };
 
-        const rasterize_state_info = c.VkPipelineRasterizationStateCreateInfo {
+        const rasterize_state_info = c.VkPipelineRasterizationStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .cullMode = c.VK_CULL_MODE_BACK_BIT,
             .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
@@ -132,7 +147,7 @@ pub const GraphicsPipeline = struct {
             .depthBiasConstantFactor = 0.0,
         };
 
-        const multisampling_state_info = c.VkPipelineMultisampleStateCreateInfo {
+        const multisampling_state_info = c.VkPipelineMultisampleStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
             .pSampleMask = null,
             .alphaToOneEnable = c.VK_FALSE,
@@ -142,9 +157,12 @@ pub const GraphicsPipeline = struct {
             .minSampleShading = 1.0,
         };
 
-        const color_blend_attachment = c.VkPipelineColorBlendAttachmentState {
+        const color_blend_attachment = c.VkPipelineColorBlendAttachmentState{
             .blendEnable = c.VK_TRUE,
-            .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
+            .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT |
+                c.VK_COLOR_COMPONENT_G_BIT |
+                c.VK_COLOR_COMPONENT_B_BIT |
+                c.VK_COLOR_COMPONENT_A_BIT,
             .srcColorBlendFactor = c.VK_BLEND_FACTOR_SRC_ALPHA,
             .dstColorBlendFactor = c.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
             .srcAlphaBlendFactor = c.VK_BLEND_FACTOR_ONE,
@@ -153,7 +171,7 @@ pub const GraphicsPipeline = struct {
             .alphaBlendOp = c.VK_BLEND_OP_ADD,
         };
 
-        const color_blend_state_info = c.VkPipelineColorBlendStateCreateInfo {
+        const color_blend_state_info = c.VkPipelineColorBlendStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
             .logicOp = c.VK_LOGIC_OP_COPY,
             .logicOpEnable = c.VK_FALSE,
@@ -162,7 +180,7 @@ pub const GraphicsPipeline = struct {
             .pAttachments = &color_blend_attachment,
         };
 
-        const depth_stencil_state_info = c.VkPipelineDepthStencilStateCreateInfo {
+        const depth_stencil_state_info = c.VkPipelineDepthStencilStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
             .maxDepthBounds = 1.0,
             .minDepthBounds = 0.0,
@@ -173,42 +191,52 @@ pub const GraphicsPipeline = struct {
             .depthBoundsTestEnable = c.VK_FALSE,
         };
 
-        const global_binding = c.VkDescriptorSetLayoutBinding {
+        const global_binding = c.VkDescriptorSetLayoutBinding{
             .binding = 0,
             .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
             .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .descriptorCount = 1,
         };
 
-        const global_layout_info = c.VkDescriptorSetLayoutCreateInfo {
+        const global_layout_info = c.VkDescriptorSetLayoutCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = 1,
             .pBindings = &global_binding,
         };
 
-        try check(device.dispatch.vkCreateDescriptorSetLayout(device.handle, &global_layout_info, null, &graphics_pipeline.descriptors[0].layout));
+        try check(device.dispatch.vkCreateDescriptorSetLayout(
+            device.handle,
+            &global_layout_info,
+            null,
+            &graphics_pipeline.descriptors[0].layout,
+        ));
 
-        const texture_binding = c.VkDescriptorSetLayoutBinding {
+        const texture_binding = c.VkDescriptorSetLayoutBinding{
             .binding = 0,
             .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
             .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
         };
 
-        const texture_layout_info = c.VkDescriptorSetLayoutCreateInfo {
+        const texture_layout_info = c.VkDescriptorSetLayoutCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = 1,
             .pBindings = &texture_binding,
         };
 
-        try check(device.dispatch.vkCreateDescriptorSetLayout(device.handle, &texture_layout_info, null, &graphics_pipeline.descriptors[1].layout));
+        try check(device.dispatch.vkCreateDescriptorSetLayout(
+            device.handle,
+            &texture_layout_info,
+            null,
+            &graphics_pipeline.descriptors[1].layout,
+        ));
 
-        const set_layouts = [_]c.VkDescriptorSetLayout {
+        const set_layouts = [_]c.VkDescriptorSetLayout{
             graphics_pipeline.descriptors[0].layout,
             graphics_pipeline.descriptors[1].layout,
         };
 
-        const layout_info = c.VkPipelineLayoutCreateInfo {
+        const layout_info = c.VkPipelineLayoutCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .pushConstantRangeCount = 0,
             .pPushConstantRanges = null,
@@ -216,51 +244,80 @@ pub const GraphicsPipeline = struct {
             .pSetLayouts = &set_layouts,
         };
 
-        try check(device.dispatch.vkCreatePipelineLayout(device.handle, &layout_info, null, &graphics_pipeline.layout));
+        try check(device.dispatch.vkCreatePipelineLayout(
+            device.handle,
+            &layout_info,
+            null,
+            &graphics_pipeline.layout,
+        ));
 
-        const global_pool_size = c.VkDescriptorPoolSize {
+        const global_pool_size = c.VkDescriptorPoolSize{
             .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .descriptorCount = 16,
         };
 
-        const global_pool_info = c.VkDescriptorPoolCreateInfo {
+        const global_pool_info = c.VkDescriptorPoolCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .poolSizeCount = 1,
             .pPoolSizes = &global_pool_size,
             .maxSets = 16,
         };
 
-        try check(device.dispatch.vkCreateDescriptorPool(device.handle, &global_pool_info, null, &graphics_pipeline.descriptors[0].pool));
+        try check(device.dispatch.vkCreateDescriptorPool(
+            device.handle,
+            &global_pool_info,
+            null,
+            &graphics_pipeline.descriptors[0].pool,
+        ));
 
-        const texture_pool_size = c.VkDescriptorPoolSize {
+        const texture_pool_size = c.VkDescriptorPoolSize{
             .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 16,
         };
 
-        const texture_pool_info = c.VkDescriptorPoolCreateInfo {
+        const texture_pool_info = c.VkDescriptorPoolCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .poolSizeCount = 1,
             .pPoolSizes = &texture_pool_size,
             .maxSets = 16,
         };
 
-        try check(device.dispatch.vkCreateDescriptorPool(device.handle, &texture_pool_info, null, &graphics_pipeline.descriptors[1].pool));
+        try check(device.dispatch.vkCreateDescriptorPool(
+            device.handle,
+            &texture_pool_info,
+            null,
+            &graphics_pipeline.descriptors[1].pool,
+        ));
 
         graphics_pipeline.format = blk: {
             var count: u32 = 0;
             var formats: [20]c.VkSurfaceFormatKHR = undefined;
 
-            try check(instance.dispatch.vkGetPhysicalDeviceSurfaceFormatsKHR(device.physical_device.handle, instance.surface, &count, null));
-            try check(instance.dispatch.vkGetPhysicalDeviceSurfaceFormatsKHR(device.physical_device.handle, instance.surface, &count, &formats));
+            try check(instance.dispatch.vkGetPhysicalDeviceSurfaceFormatsKHR(
+                device.physical_device.handle,
+                instance.surface,
+                &count,
+                null,
+            ));
+
+            try check(instance.dispatch.vkGetPhysicalDeviceSurfaceFormatsKHR(
+                device.physical_device.handle,
+                instance.surface,
+                &count,
+                &formats,
+            ));
 
             const format = for (formats) |format| {
-                if (format.format == c.VK_FORMAT_R8G8B8A8_SRGB and format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) break format;
+                if (format.format ==
+                    c.VK_FORMAT_R8G8B8A8_SRGB and format.colorSpace ==
+                    c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+                    break format;
             } else formats[0];
 
             break :blk format;
         };
 
-        const render_pass_attachment = c.VkAttachmentDescription {
+        const render_pass_attachment = c.VkAttachmentDescription{
             .format = graphics_pipeline.format.format,
             .samples = c.VK_SAMPLE_COUNT_1_BIT,
             .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -271,7 +328,7 @@ pub const GraphicsPipeline = struct {
             .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
         };
 
-        const subpass = c.VkSubpassDescription {
+        const subpass = c.VkSubpassDescription{
             .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
             .colorAttachmentCount = 1,
             .pColorAttachments = &.{
@@ -280,16 +337,19 @@ pub const GraphicsPipeline = struct {
             },
         };
 
-        const dependency = c.VkSubpassDependency {
+        const dependency = c.VkSubpassDependency{
             .srcSubpass = c.VK_SUBPASS_EXTERNAL,
             .dstSubpass = 0,
             .srcAccessMask = 0,
-            .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-            .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
         };
 
-        const render_pass_info = c.VkRenderPassCreateInfo {
+        const render_pass_info = c.VkRenderPassCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
             .attachmentCount = 1,
             .pAttachments = &render_pass_attachment,
@@ -299,9 +359,14 @@ pub const GraphicsPipeline = struct {
             .pDependencies = &dependency,
         };
 
-        try check(device.dispatch.vkCreateRenderPass(device.handle, &render_pass_info, null, &graphics_pipeline.render_pass));
+        try check(device.dispatch.vkCreateRenderPass(
+            device.handle,
+            &render_pass_info,
+            null,
+            &graphics_pipeline.render_pass,
+        ));
 
-        const graphics_pipeline_info = c.VkGraphicsPipelineCreateInfo {
+        const graphics_pipeline_info = c.VkGraphicsPipelineCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .stageCount = shader_stage_infos.len,
             .pStages = shader_stage_infos.ptr,
@@ -317,34 +382,57 @@ pub const GraphicsPipeline = struct {
             .renderPass = graphics_pipeline.render_pass,
         };
 
-        try check(device.dispatch.vkCreateGraphicsPipelines(device.handle, null, 1, &graphics_pipeline_info, null, &graphics_pipeline.handle));
+        try check(device.dispatch.vkCreateGraphicsPipelines(
+            device.handle,
+            null,
+            1,
+            &graphics_pipeline_info,
+            null,
+            &graphics_pipeline.handle,
+        ));
 
         return graphics_pipeline;
     }
-
 
     pub fn deinit(self: *const GraphicsPipeline, device: *const Device) void {
         for (self.descriptors) |descriptor| {
             descriptor.deinit(device);
         }
 
-        device.dispatch.vkDestroyPipelineLayout(device.handle, self.layout, null);
-        device.dispatch.vkDestroyRenderPass(device.handle, self.render_pass, null);
+        device.dispatch.vkDestroyPipelineLayout(
+            device.handle,
+            self.layout,
+            null,
+        );
+        device.dispatch.vkDestroyRenderPass(
+            device.handle,
+            self.render_pass,
+            null,
+        );
         device.dispatch.vkDestroyPipeline(device.handle, self.handle, null);
     }
 };
 
-fn create_shader_module(device: *const Device, comptime path: []const u8, buffer: []u8) !c.VkShaderModule {
+fn create_shader_module(
+    device: *const Device,
+    comptime path: []const u8,
+    buffer: []u8,
+) !c.VkShaderModule {
     const len = try util.read_file(path, buffer);
 
-    const info = c.VkShaderModuleCreateInfo {
+    const info = c.VkShaderModuleCreateInfo{
         .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = len,
         .pCode = @as([*]const u32, @ptrCast(@alignCast(buffer))),
     };
 
     var shader_module: c.VkShaderModule = undefined;
-    try check(device.dispatch.vkCreateShaderModule(device.handle, &info, null, &shader_module));
+    try check(device.dispatch.vkCreateShaderModule(
+        device.handle,
+        &info,
+        null,
+        &shader_module,
+    ));
 
     return shader_module;
 }
@@ -357,7 +445,7 @@ pub const Descriptor = struct {
         self: *const Descriptor,
         device: *const Device,
     ) !DescriptorSet {
-        const info = c.VkDescriptorSetAllocateInfo {
+        const info = c.VkDescriptorSetAllocateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = self.pool,
             .descriptorSetCount = 1,
@@ -365,14 +453,27 @@ pub const Descriptor = struct {
         };
 
         var set: c.VkDescriptorSet = undefined;
-        try check(device.dispatch.vkAllocateDescriptorSets(device.handle, &info, &set));
+        try check(device.dispatch.vkAllocateDescriptorSets(
+            device.handle,
+            &info,
+            &set,
+        ));
 
         return DescriptorSet.init(set);
     }
 
     pub fn deinit(self: *const Descriptor, device: *const Device) void {
-        device.dispatch.vkDestroyDescriptorPool(device.handle, self.pool, null);
-        device.dispatch.vkDestroyDescriptorSetLayout(device.handle, self.layout, null);
+        device.dispatch.vkDestroyDescriptorPool(
+            device.handle,
+            self.pool,
+            null,
+        );
+
+        device.dispatch.vkDestroyDescriptorSetLayout(
+            device.handle,
+            self.layout,
+            null,
+        );
     }
 };
 
@@ -380,7 +481,7 @@ pub const DescriptorSet = struct {
     handle: c.VkDescriptorSet,
 
     fn init(set: c.VkDescriptorSet) DescriptorSet {
-        return DescriptorSet {
+        return DescriptorSet{
             .handle = set,
         };
     }
@@ -393,13 +494,13 @@ pub const DescriptorSet = struct {
         len: u32,
         device: *const Device,
     ) void {
-        const info = c.VkDescriptorBufferInfo {
+        const info = c.VkDescriptorBufferInfo{
             .buffer = buffer,
             .offset = 0,
             .range = @sizeOf(T) * len,
         };
 
-        const write = c.VkWriteDescriptorSet {
+        const write = c.VkWriteDescriptorSet{
             .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet = self.handle,
             .dstBinding = binding,
@@ -409,7 +510,13 @@ pub const DescriptorSet = struct {
             .descriptorCount = 1,
         };
 
-        device.dispatch.vkUpdateDescriptorSets(device.handle, 1, &.{ write }, 0, null);
+        device.dispatch.vkUpdateDescriptorSets(
+            device.handle,
+            1,
+            &.{write},
+            0,
+            null,
+        );
     }
 
     pub fn update_image(
@@ -419,13 +526,13 @@ pub const DescriptorSet = struct {
         binding: u32,
         device: *const Device,
     ) void {
-        const info = c.VkDescriptorImageInfo {
+        const info = c.VkDescriptorImageInfo{
             .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             .imageView = view,
             .sampler = sampler,
         };
 
-        const write = c.VkWriteDescriptorSet {
+        const write = c.VkWriteDescriptorSet{
             .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet = self.handle,
             .dstBinding = binding,
@@ -434,7 +541,12 @@ pub const DescriptorSet = struct {
             .pImageInfo = &info,
         };
 
-        device.dispatch.vkUpdateDescriptorSets(device.handle, 1, &.{ write }, 0, null);
+        device.dispatch.vkUpdateDescriptorSets(
+            device.handle,
+            1,
+            &.{write},
+            0,
+            null,
+        );
     }
 };
-
