@@ -44,7 +44,7 @@ pub fn main() !void {
     const font = try TrueType.init(
         25,
         "RecMonoLinearNerdFont-Regular.ttf",
-        allocator,
+        allocator
     );
     defer font.deinit();
 

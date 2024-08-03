@@ -99,7 +99,6 @@ pub const Swapchain = struct {
         swapchain.allocator = allocator;
 
         try swapchain.recreate();
-        swapchain.valid = true;
 
         return swapchain;
     }
@@ -226,6 +225,8 @@ pub const Swapchain = struct {
             null,
             &self.image_available,
         ));
+
+        self.valid = true;
     }
 
     pub fn wait(self: *const Swapchain) !void {
@@ -255,7 +256,7 @@ pub const Swapchain = struct {
 
         while (result ==
             c.VK_ERROR_OUT_OF_DATE_KHR or result ==
-            c.VK_SUBOPTIMAL_KHR)
+            c.VK_SUBOPTIMAL_KHR or !self.valid)
         {
             try self.recreate();
 
@@ -277,6 +278,7 @@ pub const Swapchain = struct {
         const self: *Swapchain = @ptrCast(@alignCast(ptr));
 
         self.size.move(@ptrCast(@alignCast(data)));
+        self.valid = false;
     }
 
     pub fn resize_listener(self: *Swapchain) Listener {

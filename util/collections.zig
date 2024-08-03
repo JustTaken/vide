@@ -174,6 +174,35 @@ pub fn Vec(T: type) type {
             return items;
         }
 
+        pub fn shift(self: *Self, index: u32, count: u32) !void {
+            if (count == 0) return;
+            if (self.capacity <= count + self.items.len) {
+                const new_len = (self.items.len + count) * 2;
+                const new = self.allocator.alloc(
+                    T,
+                    new_len,
+                ) catch return Error.AllocationFail;
+
+                util.copy(T, self.items[0..index], new);
+                util.copy(T, self.items[index..], new[index + count ..]);
+
+                self.allocator.free(self.items.ptr[0..self.capacity]);
+
+                self.items.ptr = new.ptr;
+                self.items.len = count + self.items.len;
+                self.capacity = @intCast(new_len);
+            } else {
+                const l = self.items.len;
+                self.items.len += count;
+
+                util.copy(
+                    T,
+                    self.items[index..l],
+                    self.items[index + count ..],
+                );
+            }
+        }
+
         pub fn clear(self: *Self) void {
             self.items.len = 0;
         }
@@ -190,7 +219,19 @@ pub fn Vec(T: type) type {
             return &self.items[index];
         }
 
+        pub fn get_back(self: *const Self, index: usize) !*T {
+            if (index >= self.items.len) return Error.OutOfLength;
+
+            return &self.items[self.items.len - index - 1];
+        }
+
         pub fn last_mut(self: *Self) !*T {
+            if (self.items.len == 0) return Error.OutOfLength;
+
+            return &self.items[self.items.len - 1];
+        }
+
+        pub fn last(self: *const Self) !*const T {
             if (self.items.len == 0) return Error.OutOfLength;
 
             return &self.items[self.items.len - 1];
@@ -203,6 +244,14 @@ pub fn Vec(T: type) type {
         pub fn remove(self: *Self, index: usize) void {
             util.copy(T, self.items[index + 1 ..], self.items[index..]);
             self.items.len -= 1;
+        }
+
+        pub fn remove_range(self: *Self, start: usize, end: usize) !void {
+            if (start >= self.items.len or end > self.items.len or start >= end)
+                return error.OutOfLength;
+
+            util.copy(T, self.items[end..], self.items[start..]);
+            self.items.len -= end - start;
         }
 
         pub fn elements(self: *const Self) []const T {
@@ -238,6 +287,12 @@ pub fn Cursor(T: type) type {
                     allocator,
                 ) catch return Error.AllocationFail,
             };
+        }
+
+        pub fn set_len(self: *Self, index: usize) !void {
+            if (self.elements.len() <= index) return error.NoSuchIndex;
+            self.index = @intCast(index);
+            self.elements.items.len = self.index;
         }
 
         pub fn set(self: *Self, index: usize) !void {

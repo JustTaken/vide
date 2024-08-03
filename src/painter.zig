@@ -196,8 +196,6 @@ pub const Painter = struct {
     }
 
     pub fn draw(self: *Painter) !void {
-        if (!self.swapchain.valid) return error.InvalidSwapchain;
-
         const index = try self.swapchain.image_index();
         const device = self.swapchain.device;
 

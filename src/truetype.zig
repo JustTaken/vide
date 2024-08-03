@@ -18,6 +18,7 @@ const ROWS: u32 = 9;
 const COLS: u32 = 11;
 const GLYPH_COUNT: u32 = 95;
 const PADDING: u32 = 3;
+const OPACITY: u32 = 100;
 
 const CBitmap = struct {
     handle: [*c]u8,
@@ -243,7 +244,7 @@ pub const TrueType = struct {
                 for (0..face.glyph_size.x + 2) |x| {
                     bitmap.handle[
                         (y + offset.y - 1) * bitmap.size.x + offset.x + x - 1
-                    ] = 255;
+                    ] = OPACITY;
                 }
             }
         }

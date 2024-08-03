@@ -201,10 +201,10 @@ pub fn Core(Backend: type) type {
 
             self.commander = try Commander.init(Self, allocator);
 
-            self.delay = 200 * 1000 * 1000;
-            self.rate = 20 * 1000 * 1000;
-            self.frame_rate = 60;
+            self.frame_rate = 10;
             self.repeating = false;
+            self.rate = 20 * 1000 * 1000;
+            self.delay = 200 * 1000 * 1000;
 
             self.ratios[0] = math.divide(height, width);
             self.ratios[1] = font_scale;
@@ -500,7 +500,9 @@ pub fn Core(Backend: type) type {
             const content = try buffer.content(self.allocator);
             defer content.deinit();
 
-            _ = try file.write(content.items);
+            _ = file.write(content.items) catch |e| {
+                std.debug.print("error: {}\n", .{e});
+            };
 
             try self.command_line.show(&.{ buffer.name, " saved" });
         }
