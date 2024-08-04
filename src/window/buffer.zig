@@ -111,6 +111,7 @@ const Modification = struct {
 
             line_count += 1;
         }
+
         const last = buffer.lines.items[line_count].content.items[left..];
         util.copy(
             u8,
@@ -671,7 +672,7 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
     var content = self.lines.items[boundary[0].y].content.items[boundary[0].x..];
     for (boundary[0].y + 1..boundary[1].y + 1) |i| {
         try self.modification_chain.chars.extend(content);
-        try self.modification_chain.chars.extend("\n");
+        try self.modification_chain.chars.push('\n');
 
         modification.count += @intCast(content.len + 1);
         content = self.lines.items[i].content.items[0..];

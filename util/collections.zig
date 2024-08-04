@@ -189,13 +189,13 @@ pub fn Vec(T: type) type {
                 self.allocator.free(self.items.ptr[0..self.capacity]);
 
                 self.items.ptr = new.ptr;
-                self.items.len = count + self.items.len;
+                self.items.len += count;
                 self.capacity = @intCast(new_len);
             } else {
                 const l = self.items.len;
                 self.items.len += count;
 
-                util.copy(
+                util.back_copy(
                     T,
                     self.items[index..l],
                     self.items[index + count ..],

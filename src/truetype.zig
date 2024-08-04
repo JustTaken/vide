@@ -86,6 +86,39 @@ const Glyph = struct {
     bearing: Bearing,
 };
 
+const FreeType = struct {
+    handle: std.DynLib,
+    FT_Init_FreeType: *const @TypeOf(c.FT_Init_FreeType),
+    FT_New_Face: *const @TypeOf(c.FT_New_Face),
+    FT_Set_Char_Size: *const @TypeOf(c.FT_Set_Char_Size),
+    FT_Load_Glyph: *const @TypeOf(c.FT_Load_Glyph),
+    FT_Render_Glyph: *const @TypeOf(c.FT_Render_Glyph),
+    FT_Done_Face: *const @TypeOf(c.FT_Done_Face),
+    FT_Get_Char_Index: *const @TypeOf(c.FT_Get_Char_Index),
+
+    fn init() !FreeType {
+        var self: FreeType = undefined;
+        self.handle = try std.DynLib.open("libfreetype.so");
+
+        inline for (@typeInfo(FreeType).Struct.fields[1..]) |field| {
+            const name: [:0]const u8 = @ptrCast(
+                std.fmt.comptimePrint("{s}\x00", .{field.name}),
+            );
+
+            @field(self, field.name) = self.handle.lookup(
+                field.type,
+                name,
+            ) orelse return error.SymbolNoFound;
+        }
+
+        return self;
+    }
+
+    fn deinit(self: *FreeType) void {
+        self.handle.close();
+    }
+};
+
 const Face = struct {
     handle: c.FT_Face,
     library: c.FT_Library,
@@ -97,13 +130,13 @@ const Face = struct {
 
     const DPI: u32 = 72;
 
-    fn init(path: []const u8, size: u32) Face {
+    fn init(freetype: *FreeType, path: []const u8, size: u32) Face {
         var library: c.FT_Library = undefined;
         var face: c.FT_Face = undefined;
 
-        _ = c.FT_Init_FreeType(&library);
-        _ = c.FT_New_Face(library, &path[0], 0, &face);
-        _ = c.FT_Set_Char_Size(face, 0, size * DPI, DPI, DPI);
+        _ = freetype.FT_Init_FreeType(&library);
+        _ = freetype.FT_New_Face(library, &path[0], 0, &face);
+        _ = freetype.FT_Set_Char_Size(face, 0, size * DPI, DPI, DPI);
 
         const glyph_size = Size.init(
             math.from_fixed(face.*.size.*.metrics.max_advance),
@@ -120,12 +153,12 @@ const Face = struct {
         };
     }
 
-    fn get_glyph(self: *const Face, code: u32) Glyph {
-        const index = c.FT_Get_Char_Index(self.handle, code);
+    fn get_glyph(self: *const Face, freetype: *FreeType, code: u32) Glyph {
+        const index = freetype.FT_Get_Char_Index(self.handle, code);
         const glyph = self.handle.*.glyph;
 
-        _ = c.FT_Load_Glyph(self.handle, index, c.FT_LOAD_DEFAULT);
-        _ = c.FT_Render_Glyph(glyph, c.FT_RENDER_MODE_NORMAL);
+        _ = freetype.FT_Load_Glyph(self.handle, index, c.FT_LOAD_DEFAULT);
+        _ = freetype.FT_Render_Glyph(glyph, c.FT_RENDER_MODE_NORMAL);
 
         const glyph_bitmap = glyph.*.bitmap;
         const bitmap = CBitmap{
@@ -149,8 +182,8 @@ const Face = struct {
         };
     }
 
-    fn deinit(self: *const Face) void {
-        _ = c.FT_Done_Face(self.handle);
+    fn deinit(self: *const Face, freetype: *FreeType) void {
+        _ = freetype.FT_Done_Face(self.handle);
     }
 };
 
@@ -201,12 +234,15 @@ pub const TrueType = struct {
     glyph_size: Size,
 
     pub fn init(size: u32, name: []const u8, allocator: Allocator) !TrueType {
+        var self: TrueType = undefined;
         var path = try find_path(name, allocator);
+        var freetype = try FreeType.init();
+        defer freetype.deinit();
 
-        const face = Face.init(path.elements(), size);
-        defer face.deinit();
+        const face = Face.init(&freetype, path.elements(), size);
+        defer face.deinit(&freetype);
 
-        var bitmap = try Bitmap.init(
+        self.bitmap = try Bitmap.init(
             Size.init(
                 (face.glyph_size.x + PADDING) * COLS,
                 (face.glyph_size.y + PADDING) * ROWS,
@@ -217,7 +253,7 @@ pub const TrueType = struct {
         for (32..127) |code| {
             const i: u32 = @intCast(code);
             const index = i - 32;
-            const glyph = face.get_glyph(i);
+            const glyph = face.get_glyph(&freetype, i);
 
             const insert_offset = Offset{
                 .x = math.sum(glyph.offset.x, glyph.bearing.x),
@@ -227,8 +263,8 @@ pub const TrueType = struct {
                 ),
             };
 
-            bitmap.append(&glyph.bitmap, insert_offset);
-            bitmap.append_offset(glyph.offset, index);
+            self.bitmap.append(&glyph.bitmap, insert_offset);
+            self.bitmap.append_offset(glyph.offset, index);
         }
         {
             const i = GLYPH_COUNT;
@@ -242,20 +278,19 @@ pub const TrueType = struct {
 
             for (0..face.glyph_size.y + 2) |y| {
                 for (0..face.glyph_size.x + 2) |x| {
-                    bitmap.handle[
-                        (y + offset.y - 1) * bitmap.size.x + offset.x + x - 1
+                    self.bitmap.handle[
+                        (y + offset.y - 1) * self.bitmap.size.x + offset.x + x - 1
                     ] = OPACITY;
                 }
             }
         }
 
-        return TrueType{
-            .bitmap = bitmap,
-            .glyph_count = GLYPH_COUNT,
-            .glyph_size = face.glyph_size,
-            .ratio = math.divide(face.glyph_size.x, face.glyph_size.y),
-            .scale = math.divide(face.glyph_size.y, face.em),
-        };
+        self.glyph_count = GLYPH_COUNT;
+        self.glyph_size = face.glyph_size;
+        self.ratio = math.divide(face.glyph_size.x, face.glyph_size.y);
+        self.scale = math.divide(face.glyph_size.y, face.em);
+
+        return self;
     }
 
     pub fn width(self: *const TrueType) f32 {

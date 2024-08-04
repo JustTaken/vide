@@ -92,7 +92,7 @@ const LibWaylandClient = struct {
 
     fn init() !LibWaylandClient {
         var self: LibWaylandClient = undefined;
-        self.handle = try std.DynLib.open("libwayland-client.so.0");
+        self.handle = try std.DynLib.open("libwayland-client.so");
 
         inline for (@typeInfo(LibWaylandClient).Struct.fields[1..]) |field| {
             const name: [:0]const u8 = @ptrCast(

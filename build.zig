@@ -30,7 +30,12 @@ pub fn build(builder: *Builder) void {
     main.root_module.addImport("vulkan", vulkan);
 
     main.linkLibC();
-    main.linkSystemLibrary("freetype");
+
+    // Removing the following line breakes dlopen, i don't know why.
+    // Fortunatelly the linker will not link wayland-client.
+    // One can replace wayland-client by any library, but cannot remove the
+    // last linkSystemLibrary call.
+    main.linkSystemLibrary("wayland-client");
 
     scan_wayland_xml(builder, "private-code", "include/xdg-shell.c");
     scan_wayland_xml(builder, "client-header", "include/xdg-shell.h");
