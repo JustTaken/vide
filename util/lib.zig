@@ -61,8 +61,8 @@ pub fn parse(i: u32, buffer: []u8) u32 {
 pub fn hash(string: []const u8) u32 {
     var h: u32 = 0;
 
-    for (0..string.len) |i| {
-        h += string[i];
+    for (0..string.len) |j| {
+        h += @intCast(string[j]);
     }
 
     return h;

@@ -1,7 +1,7 @@
 const std = @import("std");
 const util = @import("util");
-const HashSet = util.collections.HashSet;
 
+const HashSet = util.collections.HashSet;
 const Allocator = std.mem.Allocator;
 
 pub const Fn = struct {
@@ -17,55 +17,97 @@ pub const Fn = struct {
     }
 };
 
+const MultKey = struct {
+    string: []const u8,
+
+    pub fn hash(self: *const MultKey) u32 {
+        return util.hash(self.string);
+    }
+
+    pub fn eql(self: *const MultKey, other: *const MultKey) bool {
+        return std.mem.eql(u8, self.string, other.string);
+    }
+};
+
+pub const Error = error{
+    NotComplete,
+    NotFound,
+    NotExecuted,
+};
+
 pub const CommandHandler = struct {
     ptr: *anyopaque,
     key_fn: HashSet(Fn),
     cmd_fn: HashSet(Fn),
+    mult_key: HashSet(MultKey),
     allocator: Allocator,
 
     pub fn init(
-        key_sub: []const Fn,
-        cmd_sub: []const Fn,
+        comptime key_sub: []const Fn,
+        comptime cmd_sub: []const Fn,
         allocator: Allocator,
     ) !CommandHandler {
-        var command_handler: CommandHandler = undefined;
+        var self: CommandHandler = undefined;
 
-        command_handler.allocator = allocator;
-        command_handler.cmd_fn = try HashSet(Fn).init(
+        self.allocator = allocator;
+        self.cmd_fn = try HashSet(Fn).init(
             (cmd_sub.len + 1) / 2 * 3,
             allocator,
         );
-        command_handler.key_fn = try HashSet(Fn).init(
+
+        self.key_fn = try HashSet(Fn).init(
             (key_sub.len + 1) / 2 * 3,
             allocator,
         );
 
-        for (key_sub) |key| try command_handler.key_fn.push(key);
-        for (cmd_sub) |cmd| try command_handler.cmd_fn.push(cmd);
+        self.mult_key = try HashSet(MultKey).init(
+            (key_sub.len + 1),
+            allocator,
+        );
 
-        return command_handler;
+        for (key_sub) |key| {
+            try self.key_fn.push(key);
+
+            var start: u32 = 0;
+            for (0..key.string.len) |i| {
+                if (key.string[i] == ' ') {
+                    const new = MultKey{
+                        .string = key.string[start..i],
+                    };
+
+                    if (self.mult_key.contains(new)) break;
+                    try self.mult_key.push(new);
+                    start = @intCast(i + 1);
+                }
+            }
+        }
+
+        for (cmd_sub) |cmd| try self.cmd_fn.push(cmd);
+
+        return self;
     }
 
     pub fn set(self: *CommandHandler, ptr: *anyopaque) void {
         self.ptr = ptr;
     }
 
-    pub fn execute_key(self: *CommandHandler, keys: []const u8) bool {
-        if (self.key_fn.items.len == 0) return false;
+    pub fn execute_key(self: *CommandHandler, keys: []const u8) Error!void {
+        if (self.mult_key.contains(MultKey{ .string = keys })) {
+            return Error.NotComplete;
+        }
+
         const element = self.key_fn.get(Fn{
             .string = keys,
             .f = undefined,
-        }) catch return false;
+        }) catch return Error.NotFound;
 
-        element.f(self.ptr, &.{}) catch return false;
-        return true;
+        element.f(self.ptr, &.{}) catch return Error.NotExecuted;
     }
 
     pub fn execute_string(
         self: *const CommandHandler,
         string: []const u8,
-    ) bool {
-        if (self.cmd_fn.items.len == 0) return false;
+    ) Error!void {
         var cmd_end: u32 = @intCast(string.len);
         var cmd = string;
 
@@ -80,13 +122,12 @@ pub const CommandHandler = struct {
         const element = self.cmd_fn.get(Fn{
             .string = cmd,
             .f = undefined,
-        }) catch return false;
+        }) catch return Error.NotFound;
 
         element.f(
             self.ptr,
             &[_][]const u8{string[cmd_end..]},
-        ) catch return false;
-        return true;
+        ) catch return Error.NotExecuted;
     }
 
     pub fn change(self: *CommandHandler, ptr: *anyopaque) void {

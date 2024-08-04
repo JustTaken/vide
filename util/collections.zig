@@ -391,19 +391,39 @@ pub fn HashSet(T: type) type {
         }
 
         pub fn get(self: *const Self, item: T) !*const T {
+            if (self.len == 0) return error.NoElements;
+
             const hash = item.hash();
             const len: u32 = @intCast(self.items.len);
 
             var index: u32 = hash % len;
             var count: u32 = 0;
 
-            while (self.ocupation[index] or count >= len) {
+            while (self.ocupation[index] and count < len) {
                 if (self.items[index].eql(&item)) return &self.items[index];
                 index = (index + 1) % len;
                 count += 1;
             }
 
             return error.NotFound;
+        }
+
+        pub fn contains(self: *const Self, item: T) bool {
+            if (self.len == 0) return false;
+
+            const hash = item.hash();
+            const len: u32 = @intCast(self.items.len);
+
+            var index: u32 = hash % len;
+            var count: u32 = 0;
+
+            while (self.ocupation[index] or count < len) {
+                if (self.items[index].eql(&item)) return true;
+                index = (index + 1) % len;
+                count += 1;
+            }
+
+            return false;
         }
 
         pub fn deinit(self: *const Self) void {
@@ -585,7 +605,7 @@ test "hash map" {
     try set.push(Test{ .content = "programador" });
     try set.push(Test{ .content = "presidente" });
 
-    const member = try set.get(Test{ .content = "programador" });
+    const member = try set.get(Test{ .content = "presidente" });
 
-    try expect(std.mem.eql(u8, member.content, "programador"));
+    try expect(std.mem.eql(u8, member.content, "presidente"));
 }

@@ -535,6 +535,7 @@ pub const Buffer = struct {
             Fn{ .f = selection, .string = "C-Spc" },
             Fn{ .f = undo, .string = "C-u" },
             Fn{ .f = redo, .string = "C-U" },
+            Fn{ .f = mult_test, .string = "C-x C-h" },
         };
     }
 
@@ -773,4 +774,9 @@ fn redo(ptr: *anyopaque, _: []const []const u8) !void {
     }
 
     try self.move_cursor(coord);
+}
+
+fn mult_test(ptr: *anyopaque, _: []const []const u8) !void {
+    _ = ptr;
+    std.debug.print("testing\n", .{});
 }

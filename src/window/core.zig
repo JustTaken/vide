@@ -63,9 +63,9 @@ const CommandHandlerType = enum {
 
 const Commander = struct {
     commands: FixedVec(CommandHandler, 3),
-    primary: CommandHandlerType,
-    fallback: CommandHandlerType,
-    key: FixedVec(u8, 20),
+    typ: CommandHandlerType,
+    key: FixedVec(u8, 50),
+    concatenating: bool,
 
     const WINDOW: u32 = 0;
     const BUFFER: u32 = 1;
@@ -75,7 +75,8 @@ const Commander = struct {
         var self: Commander = undefined;
 
         self.commands = FixedVec(CommandHandler, 3).init();
-        self.key = FixedVec(u8, 20).init();
+        self.key = FixedVec(u8, 50).init();
+        self.concatenating = false;
 
         try self.commands.push(
             try CommandHandler.init(
@@ -108,39 +109,51 @@ const Commander = struct {
         return self.commands.get(@intFromEnum(typ)) catch unreachable;
     }
 
-    fn execute_key(
-        self: *Commander,
-        key: []const u8,
-        primary: CommandHandlerType,
-        fallback: CommandHandlerType,
-    ) !void {
-        if (!self.get(primary).execute_key(key)) {
-            if (!self.get(fallback).execute_key(key))
-                return error.CommandFail;
+    fn push_key(self: *Commander, key: []const u8) void {
+        if (!self.concatenating) {
+            self.key.clear();
+        } else {
+            self.key.push(' ') catch unreachable;
         }
 
-        self.key.clear();
-        self.primary = primary;
-        self.fallback = fallback;
-        try self.key.extend(key);
+        self.key.extend(key) catch unreachable;
+    }
+
+    fn reset(self: *Commander) void {
+        self.concatenating = false;
+    }
+
+    fn execute_key(
+        self: *Commander,
+        typ: CommandHandlerType,
+    ) bool {
+        self.get(typ).execute_key(self.key.elements()) catch |e| {
+            switch (e) {
+                error.NotComplete => {
+                    self.concatenating = true;
+                    return true;
+                },
+                else => return false,
+            }
+        };
+
+        self.typ = typ;
+
+        self.reset();
+        return true;
     }
 
     fn execute_string(
         self: *Commander,
         string: []const u8,
-        primary: CommandHandlerType,
-        fallback: CommandHandlerType,
+        typ: CommandHandlerType,
     ) !void {
-        if (!self.get(primary).execute_string(string)) {
-            if (!self.get(fallback).execute_string(string))
-                return error.CommandFail;
-        }
+        self.typ = typ;
+        try self.get(typ).execute_string(string);
     }
 
     fn repeat(self: *Commander) !void {
-        if (!self.get(self.primary).execute_key(self.key.elements()))
-            if (!self.get(self.fallback).execute_key(self.key.elements()))
-                return error.CommandFail;
+        try self.get(self.typ).execute_key(self.key.elements());
     }
 
     fn deinit(self: *Commander) void {
@@ -318,11 +331,15 @@ pub fn Core(Backend: type) type {
             self.repeating = false;
 
             if (key_string.len != 1) {
-                self.commander.execute_key(
-                    key_string,
-                    .Window,
-                    if (self.mode == .Normal) .Buffer else .CommandLine,
-                ) catch return;
+                self.commander.push_key(key_string);
+                if (!self.commander.execute_key(.Window)) {
+                    if (!self.commander.execute_key(
+                        if (self.mode == .Normal) .Buffer else .CommandLine,
+                    )) {
+                        self.commander.reset();
+                        return;
+                    }
+                }
             } else if (self.mode == .Normal) {
                 try self.buffers.get_mut().insert_string(key_string);
             } else {
@@ -399,11 +416,10 @@ pub fn Core(Backend: type) type {
 
                 const content = self.command_line.chars();
                 try self.command_line.deactive();
-                self.commander.execute_string(
+                try self.commander.execute_string(
                     content,
                     .Window,
-                    .Buffer,
-                ) catch return;
+                );
             } else {
                 return error.DoNotHandle;
             }
@@ -500,9 +516,7 @@ pub fn Core(Backend: type) type {
             const content = try buffer.content(self.allocator);
             defer content.deinit();
 
-            _ = file.write(content.items) catch |e| {
-                std.debug.print("error: {}\n", .{e});
-            };
+            _ = try file.write(content.items);
 
             try self.command_line.show(&.{ buffer.name, " saved" });
         }
