@@ -20,10 +20,14 @@ pub const GraphicsPipeline = struct {
     ) !GraphicsPipeline {
         var graphics_pipeline: GraphicsPipeline = undefined;
         var buffer: [8000]u8 = undefined;
+        var path: [100]u8 = undefined;
+        const executable = try std.fs.selfExeDirPath(&path);
+
+        const vert = util.concat(&path, executable.len, "/../shader/vert.spv");
 
         const vert_module = try create_shader_module(
             device,
-            "zig-out/shader/vert.spv",
+            vert,
             &buffer,
         );
 
@@ -33,9 +37,10 @@ pub const GraphicsPipeline = struct {
             null,
         );
 
+        const frag = util.concat(&path, executable.len, "/../shader/frag.spv");
         const frag_module = try create_shader_module(
             device,
-            "zig-out/shader/frag.spv",
+            frag,
             &buffer,
         );
 
@@ -415,7 +420,7 @@ pub const GraphicsPipeline = struct {
 
 fn create_shader_module(
     device: *const Device,
-    comptime path: []const u8,
+    path: []const u8,
     buffer: []u8,
 ) !c.VkShaderModule {
     const len = try util.read_file(path, buffer);

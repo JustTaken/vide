@@ -68,6 +68,14 @@ pub fn hash(string: []const u8) u32 {
     return h;
 }
 
+pub fn concat(buffer: []u8, len: usize, string: []const u8) []const u8 {
+    for (0..string.len) |i| {
+        buffer[i + len] = string[i];
+    }
+
+    return buffer[0..string.len + len];
+}
+
 pub fn assert(b: bool) error{False}!void {
     if (!b) return error.False;
 }
