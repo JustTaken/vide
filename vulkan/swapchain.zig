@@ -31,6 +31,7 @@ pub const Swapchain = struct {
     size: Size,
     format: c.VkSurfaceFormatKHR,
     image_count: u32,
+    sleep: u32,
     valid: bool,
 
     allocator: Allocator,
@@ -41,10 +42,11 @@ pub const Swapchain = struct {
         format: c.VkSurfaceFormatKHR,
         render_pass: c.VkRenderPass,
         size: Size,
+        frame_rate: u32,
         allocator: Allocator,
     ) !Swapchain {
-        var swapchain: Swapchain = undefined;
-        swapchain.handle = null;
+        var self: Swapchain = undefined;
+        self.handle = null;
 
         const semaphore_info = c.VkSemaphoreCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -59,48 +61,49 @@ pub const Swapchain = struct {
             device.handle,
             &semaphore_info,
             null,
-            &swapchain.render_finished,
+            &self.render_finished,
         ));
 
         try check(device.dispatch.vkCreateFence(
             device.handle,
             &fence_info,
             null,
-            &swapchain.in_flight,
+            &self.in_flight,
         ));
 
-        swapchain.device = device;
+        self.device = device;
         const capabilities = device.physical_device.capabilities;
-        swapchain.image_count = if (capabilities.maxImageCount > 0)
+        self.image_count = if (capabilities.maxImageCount > 0)
             @min(capabilities.minImageCount + 1, capabilities.maxImageCount)
         else
             capabilities.minImageCount + 1;
 
-        swapchain.render_pass = render_pass;
-        swapchain.surface = surface;
-        swapchain.size = size;
-        swapchain.format = format;
+        self.render_pass = render_pass;
+        self.surface = surface;
+        self.size = size;
+        self.format = format;
+        self.sleep = 1000000000 / frame_rate;
 
-        swapchain.images = try allocator.alloc(
+        self.images = try allocator.alloc(
             c.VkImage,
-            swapchain.image_count,
+            self.image_count,
         );
 
-        swapchain.image_views = try allocator.alloc(
+        self.image_views = try allocator.alloc(
             c.VkImageView,
-            swapchain.image_count,
+            self.image_count,
         );
 
-        swapchain.framebuffers = try allocator.alloc(
+        self.framebuffers = try allocator.alloc(
             c.VkFramebuffer,
-            swapchain.image_count,
+            self.image_count,
         );
 
-        swapchain.allocator = allocator;
+        self.allocator = allocator;
 
-        try swapchain.recreate();
+        try self.recreate();
 
-        return swapchain;
+        return self;
     }
 
     fn recreate(self: *Swapchain) !void {
@@ -230,6 +233,7 @@ pub const Swapchain = struct {
     }
 
     pub fn wait(self: *const Swapchain) !void {
+        std.time.sleep(self.sleep);
         try check(self.device.dispatch.vkWaitForFences(
             self.device.handle,
             1,

@@ -72,6 +72,7 @@ pub fn main() !void {
         graphics_pipeline.format,
         graphics_pipeline.render_pass,
         window.size,
+        window.frame_rate,
         allocator,
     );
     defer swapchain.deinit();
@@ -93,22 +94,18 @@ pub fn main() !void {
     try window.add_listener(painter.resize_listener());
     try window.add_listener(swapchain.resize_listener());
 
-    const frame_wait = 1000 / window.frame_rate;
 
     // for (testing) |c| {
     //     try window.key_input(c);
     //     window.handle.get_events();
-    //     try window.update();
 
-    //     std.time.sleep(1000000 * frame_wait);
+    //     try window.update();
     //     try swapchain.wait();
     // }
 
     while (window.state != .Closing) {
         window.handle.get_events();
         try window.update();
-
-        std.time.sleep(1000000 * frame_wait);
         try swapchain.wait();
     }
 }

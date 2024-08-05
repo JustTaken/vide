@@ -190,8 +190,9 @@ pub fn Core(Backend: type) type {
         last_fetch_rate: Instant,
 
         frame_rate: u32,
-
         repeating: bool,
+
+        profiler: u64,
 
         allocator: Allocator,
 
@@ -214,10 +215,11 @@ pub fn Core(Backend: type) type {
 
             self.commander = try Commander.init(Self, allocator);
 
-            self.frame_rate = 10;
+            self.frame_rate = 30;
             self.repeating = false;
             self.rate = 20 * 1000 * 1000;
             self.delay = 200 * 1000 * 1000;
+            self.profiler = 0;
 
             self.ratios[0] = math.divide(height, width);
             self.ratios[1] = font_scale;
@@ -321,6 +323,8 @@ pub fn Core(Backend: type) type {
 
             self.handle.update_surface();
             self.change = false;
+            const end = try std.time.Instant.now();
+            self.profiler += end.since(now);
         }
 
         pub fn add_listener(self: *Self, listener: Listener) !void {
@@ -328,6 +332,7 @@ pub fn Core(Backend: type) type {
         }
 
         pub fn key_input(self: *Self, key_string: []const u8) !void {
+            const start = try std.time.Instant.now();
             self.repeating = false;
 
             if (key_string.len != 1) {
@@ -352,6 +357,7 @@ pub fn Core(Backend: type) type {
             self.last_fetch_rate = now;
             self.repeating = true;
             self.change = true;
+            self.profiler += now.since(start);
         }
 
         pub fn key_up(self: *Self) void {
@@ -416,10 +422,10 @@ pub fn Core(Backend: type) type {
 
                 const content = self.command_line.chars();
                 try self.command_line.deactive();
-                try self.commander.execute_string(
+                self.commander.execute_string(
                     content,
                     .Window,
-                );
+                ) catch return;
             } else {
                 return error.DoNotHandle;
             }
@@ -458,9 +464,13 @@ pub fn Core(Backend: type) type {
                     try self.buffers.get_mut().show();
                     break;
                 }
-            } else return error.NotFound;
+            } else {
+                try self.command_line.show(&.{ args[0], " not found" });
+                return error.NotFound;
+            }
 
             self.commander.set(.Buffer, self.buffers.get_mut());
+            try self.command_line.show(&.{ args[0], " opened" });
         }
 
         fn open_file(ptr: *anyopaque, args: []const []const u8) !void {
@@ -468,7 +478,10 @@ pub fn Core(Backend: type) type {
             open_buffer(ptr, args) catch {
                 const self: *Self = @ptrCast(@alignCast(ptr));
 
-                const file = try std.fs.cwd().openFile(args[0], .{});
+                const file = std.fs.cwd().openFile(args[0], .{}) catch {
+                    try self.command_line.show(&.{ args[0], " not found" });
+                    return error.NotFound;
+                };
                 defer file.close();
 
                 const end_pos = try file.getEndPos();
@@ -499,7 +512,7 @@ pub fn Core(Backend: type) type {
                 );
 
                 self.commander.set(.Buffer, self.buffers.get_mut());
-                try self.command_line.show(&.{ args[0], " opend" });
+                try self.command_line.show(&.{ args[0], " opened" });
             };
         }
 

@@ -479,6 +479,56 @@ pub fn FixedVec(T: type, L: u32) type {
     };
 }
 
+pub fn CiclicVec(T: type, L: u32) type {
+    return struct {
+        items: [L]T,
+        len: u32,
+        first: u32,
+
+        const Self = @This();
+
+        pub fn init() Self {
+            return Self{
+                .items = undefined,
+                .len = 0,
+                .first = 0,
+            };
+        }
+
+        pub fn push(self: *Self, item: T) void {
+            self.items[(self.len + self.first) % L] = item;
+
+            if (self.len >= L) {
+                self.first = (self.first + 1) % L;
+            } else {
+                self.len += 1;
+            }
+        }
+
+        pub fn last(self: *const Self) *const T {
+            return &self.items[(self.len + self.first - 1) % L];
+        }
+
+        pub fn last_mut(self: *Self) *T {
+            return &self.items[(self.len + self.first - 1) % L];
+        }
+
+        pub fn get(self: *Self, index: u32) !*T {
+            if (self.len == 0) return error.NoElements;
+            return &self.items[index % L];
+        }
+
+        pub fn change(self: *Self, from: u32, to: u32) void {
+            if (from > to) {
+                self.len -= from - to;
+            } else {
+                if (to - from > L - self.len) @panic("Should not happen");
+                self.len += to - from;
+            }
+        }
+    };
+}
+
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 

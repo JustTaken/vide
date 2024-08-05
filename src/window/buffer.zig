@@ -5,6 +5,7 @@ const math = util.math;
 const Allocator = std.mem.Allocator;
 const Change = @import("core.zig").Change;
 const Vec = util.collections.Vec;
+const CiclicVec = util.collections.CiclicVec;
 const Deque = util.collections.Cursor;
 const Fn = @import("command.zig").Fn;
 
@@ -15,7 +16,6 @@ const Cursor = math.Vec2D;
 
 const Line = struct {
     content: Vec(u8),
-    indent: u32,
 
     const TAB: u32 = 2;
     const CHAR_COUNT: u32 = 50;
@@ -23,36 +23,30 @@ const Line = struct {
     fn init(content: []const u8, allocator: Allocator) !Line {
         const content_len: u32 = @intCast(content.len);
 
-        var indent: u32 = 0;
         var vec = try Vec(u8).init(
             math.max(content_len, CHAR_COUNT),
             allocator,
         );
 
-        if (content_len > 0) {
-            while (content[indent] == ' ') : (indent += 1) {}
-            try vec.extend(content);
-        }
+        try vec.extend(content);
 
         return Line{
             .content = vec,
-            .indent = indent,
         };
     }
 
     fn insert_string(self: *Line, string: []const u8, col: u32) !void {
-        if (col <= self.indent) {
-            var indent: u32 = 0;
+        try self.content.extend_insert(string, col);
+    }
 
-            for (string) |char| {
-                if (char != ' ') break;
-                indent += 1;
-            }
-
-            self.indent += indent;
+    fn indent(self: *const Line) u32 {
+        var i: u32 = 0;
+        for (self.content.items) |char| {
+            if (char != ' ') break;
+            i += 1;
         }
 
-        try self.content.extend_insert(string, col);
+        return i;
     }
 
     fn len(self: *const Line) u32 {
@@ -90,11 +84,17 @@ const ModificationType = enum {
 };
 
 const Modification = struct {
-    typ: ModificationType,
     index: u32,
     count: u32,
 
-    pub fn do_delete(
+    fn init(index: u32) Modification {
+        return .{
+            .index = index,
+            .count = 0,
+        };
+    }
+
+    fn do_delete(
         self: *const Modification,
         buffer: *Buffer,
         coord: *const Coord,
@@ -160,7 +160,7 @@ const Modification = struct {
         for (0..content.len) |i| {
             if (content[i] == '\n') {
                 const line = try buffer.lines.get_mut(line_index);
-                try line.content.extend_insert(content[start..i], col_index);
+                try line.insert_string(content[start..i], col_index);
 
                 start = @intCast(i + 1);
                 line_index += 1;
@@ -173,7 +173,7 @@ const Modification = struct {
             }
         }
 
-        try buffer.lines.items[line_index].content.extend_insert(
+        try buffer.lines.items[line_index].insert_string(
             content[start..content.len],
             col_index,
         );
@@ -199,39 +199,44 @@ const Modification = struct {
 
 const ModificationChain = struct {
     chars: Vec(u8),
-    modifications: Vec(Modification),
-    coords: Vec(Coord),
+    modifications: CiclicVec(Modification, 100),
+    typs: CiclicVec(ModificationType, 100),
+    coords: CiclicVec(Coord, 100),
     register_new: bool,
     len: u32,
+    index: u32,
 
     fn init(allocator: Allocator) !ModificationChain {
         return .{
-            .modifications = try Vec(Modification).init(10, allocator),
-            .coords = try Vec(Coord).init(10, allocator),
-            .chars = try Vec(u8).init(10, allocator),
+            .modifications = CiclicVec(Modification, 100).init(),
+            .coords = CiclicVec(Coord, 100).init(),
+            .typs = CiclicVec(ModificationType, 100).init(),
+            .chars = try Vec(u8).init(100, allocator),
             .register_new = true,
+            .index = 0,
             .len = 0,
         };
     }
 
     fn go_backward(self: *ModificationChain) !void {
-        if (self.len == 0) return error.NoBackwardModification;
-        self.len -= 1;
+        if (self.index == 0) return error.NoBackwardModification;
+        self.index -= 1;
     }
 
     fn go_foward(self: *ModificationChain) !void {
-        if (self.len >= self.modifications.len()) {
+        if (self.len <= self.index) {
             return error.NoFowardModification;
         }
 
-        self.len += 1;
+        self.index += 1;
     }
 
     fn do_last(self: *ModificationChain, buffer: *Buffer) !void {
         const last = try self.modifications.last();
         const coord = try self.coords.last();
+        const typ = try self.typs.last();
 
-        switch (last.typ) {
+        switch (typ) {
             .Insert => try last.do_insert(buffer, coord),
             .Delete => try last.do_delete(buffer, coord),
         }
@@ -243,44 +248,38 @@ const ModificationChain = struct {
         typ: ModificationType,
     ) !void {
         self.register_new = false;
-        self.modifications.items.len = self.len;
-        self.coords.items.len = self.len;
-        try self.coords.push(coord);
 
-        if (self.len > 0) {
-            const mod = self.modifications.items[self.len - 1];
+        self.modifications.change(self.len, self.index);
+        self.coords.change(self.len, self.index);
+        self.typs.change(self.len, self.index);
+
+        if (self.index > 0) {
+            const mod = self.modifications.last();
             self.chars.items.len = mod.index + mod.count;
         }
 
-        switch (typ) {
-            .Insert => {
-                try self.modifications.push(Modification{
-                    .typ = .Insert,
-                    .count = 0,
-                    .index = self.chars.len(),
-                });
-            },
-            .Delete => {
-                try self.modifications.push(Modification{
-                    .typ = .Delete,
-                    .count = 0,
-                    .index = self.chars.len(),
-                });
-            },
-        }
+        self.typs.push(typ);
+        self.coords.push(coord);
+        self.modifications.push(Modification.init(self.chars.len()));
 
-        self.len += 1;
+        self.index += 1;
+        self.len = self.index;
     }
 
     fn push(
         self: *ModificationChain,
         coord: Coord,
         mod: Modification,
+        typ: ModificationType,
     ) !void {
         self.chars.items.len = mod.index;
-        if (self.register_new) try self.register(coord, mod.typ);
+        const is_dif = self.typs.len > 0 and self.typs.last().* != typ;
 
-        const last = try self.modifications.last_mut();
+        if (self.register_new or is_dif) {
+            try self.register(coord, typ);
+        }
+
+        const last = self.modifications.last_mut();
 
         last.count += mod.count;
         self.chars.items.len += mod.count;
@@ -312,7 +311,7 @@ const ModificationChain = struct {
 };
 
 pub const Buffer = struct {
-    name: []const u8,
+    name: []u8,
     lines: Vec(Line),
     cursor: Cursor,
     selection: Selection,
@@ -365,7 +364,8 @@ pub const Buffer = struct {
         self.cursor = Cursor.init(0, 0);
         self.selection = Selection.init(self.cursor);
         self.rect = Rect.init(Coord.init(0, 0), size);
-        self.name = name;
+        self.name = try allocator.alloc(u8, name.len);
+        util.copy(u8, name, self.name);
 
         try self.background_changes.push(
             Change.add_background(self.cursor.x, self.cursor.y),
@@ -493,14 +493,13 @@ pub const Buffer = struct {
     pub fn insert_string(self: *Buffer, string: []const u8) !void {
         const len: u32 = @intCast(string.len);
         const modification = Modification{
-            .typ = .Insert,
             .count = len,
             .index = self.modification_chain.chars.len(),
         };
 
         try self.modification_chain.chars.extend(string);
         try modification.do_insert(self, &self.cursor);
-        try self.modification_chain.push(self.cursor, modification);
+        try self.modification_chain.push(self.cursor, modification, .Insert);
 
         self.selection.active = false;
         try self.move_cursor(
@@ -537,6 +536,8 @@ pub const Buffer = struct {
             Fn{ .f = undo, .string = "C-u" },
             Fn{ .f = redo, .string = "C-U" },
             Fn{ .f = mult_test, .string = "C-x C-h" },
+            Fn{ .f = next_word, .string = "A-f" },
+            Fn{ .f = prev_word, .string = "A-b" },
         };
     }
 
@@ -555,26 +556,29 @@ pub const Buffer = struct {
         }
 
         self.lines.deinit();
+        self.lines.allocator.free(self.name);
     }
 };
 
 fn enter(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
+    const line = try self.lines.get(self.cursor.y);
+    const indent = math.min(line.indent(), self.cursor.x);
     const modification = Modification{
-        .typ = .Insert,
-        .count = 1,
+        .count = 1 + indent,
         .index = self.modification_chain.chars.len(),
     };
 
     try self.modification_chain.chars.push('\n');
+    try self.modification_chain.chars.extend(
+        line.content.items[0..indent],
+    );
     try modification.do_insert(self, &self.cursor);
-    try self.modification_chain.push(self.cursor, modification);
-
-    const line = try self.lines.get(self.cursor.y);
+    try self.modification_chain.push(self.cursor, modification, .Insert);
 
     self.selection.active = false;
-    try self.move_cursor(&Cursor.init(line.indent, self.cursor.y + 1));
+    try self.move_cursor(&Cursor.init(indent, self.cursor.y + 1));
     self.modification_chain.register_new = false;
 }
 
@@ -664,7 +668,6 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
     }
 
     var modification = Modification{
-        .typ = .Delete,
         .count = 0,
         .index = self.modification_chain.chars.len(),
     };
@@ -685,11 +688,12 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
 
     try self.selection_opeartion(Change.remove);
     try modification.do_delete(self, &boundary[0]);
-    try self.modification_chain.push(boundary[0], modification);
+    try self.modification_chain.push(boundary[0], modification, .Delete);
 
     self.selection.active = false;
     self.selection.move(&self.cursor);
     try self.move_cursor(&boundary[0]);
+    self.modification_chain.register_new = false;
 }
 
 fn selection(ptr: *anyopaque, _: []const []const u8) !void {
@@ -747,13 +751,14 @@ fn undo(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
     const chain = &self.modification_chain;
 
-    if (chain.len == 0) return error.NoModification;
+    if (chain.index == 0) return error.NoModification;
 
-    const mod = try chain.modifications.get(chain.len - 1);
-    const coord = try chain.coords.get(chain.len - 1);
+    const mod = try chain.modifications.get(chain.index - 1);
+    const coord = try chain.coords.get(chain.index - 1);
+    const typ = try chain.typs.get(chain.index - 1);
     try self.modification_chain.go_backward();
 
-    switch (mod.typ) {
+    switch (typ.*) {
         .Insert => try mod.do_delete(self, coord),
         .Delete => try mod.do_insert(self, coord),
     }
@@ -765,16 +770,64 @@ fn redo(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
     const chain = &self.modification_chain;
 
-    const mod = try chain.modifications.get(chain.len);
-    const coord = try chain.coords.get(chain.len);
+    const mod = try chain.modifications.get(chain.index);
+    const coord = try chain.coords.get(chain.index);
+    const typ = try chain.typs.get(chain.index);
+
     try self.modification_chain.go_foward();
 
-    switch (mod.typ) {
+    switch (typ.*) {
         .Insert => try mod.do_insert(self, coord),
         .Delete => try mod.do_delete(self, coord),
     }
 
     try self.move_cursor(coord);
+}
+
+fn next_word(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+    const line = &self.lines.items[self.cursor.y];
+
+    var flag = false;
+    const content = line.content.items[self.cursor.x..];
+    for (0..content.len) |j| {
+        if (util.is_ascii(content[j])) {
+            flag = true;
+        } else if (flag) {
+            try self.move_cursor(&Cursor.init(
+                @intCast(j + self.cursor.x),
+                self.cursor.y,
+            ));
+            return;
+        }
+    }
+
+    if (self.cursor.x < line.content.len()) {
+        try self.move_cursor(&Cursor.init(line.content.len(), self.cursor.y));
+    }
+}
+
+fn prev_word(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+    const line = &self.lines.items[self.cursor.y];
+
+    var flag = false;
+    const content = line.content.items[0..self.cursor.x];
+    for (0..content.len) |j| {
+        if (util.is_ascii(content[self.cursor.x - j - 1])) {
+            flag = true;
+        } else if (flag) {
+            try self.move_cursor(&Cursor.init(
+                @intCast(self.cursor.x - j),
+                self.cursor.y,
+            ));
+            return;
+        }
+    }
+
+    if (self.cursor.x != 0) {
+        try self.move_cursor(&Cursor.init(0, self.cursor.y));
+    }
 }
 
 fn mult_test(ptr: *anyopaque, _: []const []const u8) !void {

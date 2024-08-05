@@ -76,6 +76,11 @@ pub fn concat(buffer: []u8, len: usize, string: []const u8) []const u8 {
     return buffer[0..string.len + len];
 }
 
+pub fn is_ascii(u: u8) bool {
+    if ((u >= 65 and u <= 90) or (u >= 97 and u <= 122)) return true;
+    return false;
+}
+
 pub fn assert(b: bool) error{False}!void {
     if (!b) return error.False;
 }
