@@ -538,6 +538,15 @@ pub const Buffer = struct {
             Fn{ .f = mult_test, .string = "C-x C-h" },
             Fn{ .f = next_word, .string = "A-f" },
             Fn{ .f = prev_word, .string = "A-b" },
+            Fn{ .f = buffer_start, .string = "A-<" },
+            Fn{ .f = buffer_end, .string = "A->" },
+        };
+    }
+
+    pub fn string_commands() []const Fn {
+        return &[_]Fn{
+            Fn{ .f = search_foward, .string = "searchf" },
+            Fn{ .f = search_backward, .string = "searchb" },
         };
     }
 
@@ -828,6 +837,100 @@ fn prev_word(ptr: *anyopaque, _: []const []const u8) !void {
     if (self.cursor.x != 0) {
         try self.move_cursor(&Cursor.init(0, self.cursor.y));
     }
+}
+
+fn buffer_start(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    if (self.cursor.x != 0 or self.cursor.y != 0) {
+        try self.move_cursor(&Cursor.init(0, 0));
+    }
+}
+
+fn buffer_end(ptr: *anyopaque, _: []const []const u8) !void {
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+
+    const last = try self.lines.last();
+
+    if (self.cursor.x != last.len() or
+        self.cursor.y != self.lines.len() - 1)
+    {
+        try self.move_cursor(&Cursor.init(last.len(), self.lines.len() - 1));
+    }
+}
+
+fn search_foward(ptr: *anyopaque, args: []const []const u8) !void {
+    if (args.len != 1 and args[0].len == 0) return error.InvalidArgumentNumber;
+
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+    const string = args[0];
+
+    var j: u32 = 0;
+
+    var start = self.cursor.copy();
+    var end = self.cursor.copy();
+    var col: u32 = self.cursor.x;
+    std.debug.print("argument: {s}????\n", .{args[0]});
+
+    for (self.cursor.y..self.lines.len()) |i| {
+        const line = &self.lines.items[i];
+
+        for (line.content.items[col..], 0..) |char, k| {
+            if (string[j] != char and j != 0) {
+                j = 0;
+                start.move(&Cursor.init(@intCast(col + k + 1), @intCast(i)));
+            } else {
+                j += 1;
+
+                if (j == string.len) {
+                    end.move(&Cursor.init(@intCast(k), @intCast(i)));
+
+                    self.selection.move(&end);
+                    self.selection.active = true;
+                    try self.move_cursor(&start);
+                    return;
+                }
+            }
+        }
+
+        col = 0;
+    }
+}
+
+fn search_backward(ptr: *anyopaque, args: []const []const u8) !void {
+    if (args.len != 1 and args[0].len == 0) return error.InvalidArgumentNumber;
+
+    const self: *Buffer = @ptrCast(@alignCast(ptr));
+    const string = args[0];
+
+    var j: u32 = 0;
+
+    var start = self.cursor.copy();
+    var end = self.cursor.copy();
+    var content = self.lines.items[self.cursor.y].content.items[0..self.cursor.x];
+
+    for (0..self.cursor.y + 1) |i| {
+        for (0..content.len) |k| {
+            if (string[string.len - j - 1] != content[content.len - k - 1] and j != 0) {
+                j = 0;
+                end.move(&Cursor.init(@intCast(content.len - k), @intCast(i)));
+            } else {
+                j += 1;
+
+                if (j == string.len) {
+                    start.move(&Cursor.init(@intCast(content.len - k - 1), @intCast(i)));
+                    self.selection.move(&end);
+                    self.selection.active = true;
+                    try self.move_cursor(&start);
+                    return;
+                }
+            }
+        }
+
+        const line = &self.lines.items[self.cursor.y - i];
+        content = line.content.items[0..];
+    }
+
 }
 
 fn mult_test(ptr: *anyopaque, _: []const []const u8) !void {

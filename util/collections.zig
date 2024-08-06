@@ -529,6 +529,30 @@ pub fn CiclicVec(T: type, L: u32) type {
     };
 }
 
+pub fn Array(T: type, L: usize) type {
+    return struct {
+        elements: [*]T,
+        len: usize,
+
+        const Arena = util.Arena;
+        const Self = @This();
+
+        fn init(arena: Arena) Self {
+            return .{
+                .elements = arena.alloc(T, L),
+                .len = 0,
+            };
+        }
+
+        fn push(self: *Self, item: T) void {
+            if (self.len >= L) @panic("OutOfLength");
+
+            self.elements[self.len] = item;
+            self.len += 1;
+        }
+    };
+}
+
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 

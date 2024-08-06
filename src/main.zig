@@ -47,8 +47,10 @@ pub fn main() !void {
         allocator
     );
     defer font.deinit();
+    var window: Window(Wayland) = undefined;
 
-    const window = try Window(Wayland).init(
+    try Window(Wayland).init(
+        &window,
         1920,
         1080,
         font.scale,

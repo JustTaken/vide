@@ -87,7 +87,11 @@ const Commander = struct {
         );
 
         try self.commands.push(
-            try CommandHandler.init(Buffer.commands(), &.{}, allocator),
+            try CommandHandler.init(
+                Buffer.commands(),
+                Buffer.string_commands(),
+                allocator,
+            ),
         );
 
         try self.commands.push(
@@ -199,13 +203,13 @@ pub fn Core(Backend: type) type {
         const Self = @This();
 
         pub fn init(
+            self: *Self,
             width: u32,
             height: u32,
             font_scale: f32,
             font_ratio: f32,
             allocator: Allocator,
-        ) !*Self {
-            const self = try allocator.create(Self);
+        ) !void {
             try Backend.init(self);
 
             self.listeners = FixedVec(Listener, 2).init();
@@ -258,8 +262,6 @@ pub fn Core(Backend: type) type {
             self.mode = .Normal;
             self.change = true;
             self.allocator = allocator;
-
-            return self;
         }
 
         pub fn resize(self: *Self, width: u32, height: u32) void {
@@ -395,7 +397,6 @@ pub fn Core(Backend: type) type {
             self.command_line.deinit();
             self.handle.deinit();
             self.commander.deinit();
-            self.allocator.destroy(self);
         }
 
         fn commands_handle() []const Fn {
@@ -425,7 +426,12 @@ pub fn Core(Backend: type) type {
                 self.commander.execute_string(
                     content,
                     .Window,
-                ) catch return;
+                ) catch {
+                    self.commander.execute_string(
+                        content,
+                        .Buffer,
+                    ) catch return;
+                };
             } else {
                 return error.DoNotHandle;
             }
