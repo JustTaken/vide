@@ -4,6 +4,7 @@ const math = util.math;
 
 const Vec = util.collections.Vec;
 const FixedVec = util.collections.FixedVec;
+const List = util.collections.List;
 const Cursor = util.collections.Cursor;
 const Buffer = @import("buffer.zig").Buffer;
 const CommandLine = @import("command_line.zig").CommandLine;
@@ -12,9 +13,11 @@ const Size = math.Vec2D;
 const Painter = @import("../painter.zig").Painter;
 const Fn = @import("command.zig").Fn;
 const Listener = util.Listener;
+const Line = @import("buffer.zig").Line;
 
 const Instant = std.time.Instant;
 const Allocator = std.mem.Allocator;
+const Arena = util.allocator.Arena;
 
 pub const State = enum {
     Running,
@@ -71,7 +74,7 @@ const Commander = struct {
     const BUFFER: u32 = 1;
     const COMMAND_LINE: u32 = 2;
 
-    fn init(T: type, allocator: Allocator) !Commander {
+    fn init(T: type, arena: *Arena) !Commander {
         var self: Commander = undefined;
 
         self.commands = FixedVec(CommandHandler, 3).init();
@@ -82,7 +85,8 @@ const Commander = struct {
             try CommandHandler.init(
                 T.commands_handle(),
                 T.string_commands(),
-                allocator,
+                &.{},
+                arena,
             ),
         );
 
@@ -90,12 +94,18 @@ const Commander = struct {
             try CommandHandler.init(
                 Buffer.commands(),
                 Buffer.string_commands(),
-                allocator,
+                Buffer.mult_keys(),
+                arena,
             ),
         );
 
         try self.commands.push(
-            try CommandHandler.init(CommandLine.commands(), &.{}, allocator),
+            try CommandHandler.init(
+                CommandLine.commands(),
+                &.{},
+                &.{},
+                arena,
+            ),
         );
 
         return self;
@@ -159,12 +169,6 @@ const Commander = struct {
     fn repeat(self: *Commander) !void {
         try self.get(self.typ).execute_key(self.key.elements());
     }
-
-    fn deinit(self: *Commander) void {
-        for (self.commands.elements()) |c| {
-            c.deinit();
-        }
-    }
 };
 
 pub fn Core(Backend: type) type {
@@ -199,6 +203,9 @@ pub fn Core(Backend: type) type {
         profiler: u64,
 
         allocator: Allocator,
+        temp_arena: Arena,
+        perm_arena: Arena,
+        lines: List(Line, 1024),
 
         const Self = @This();
 
@@ -209,17 +216,20 @@ pub fn Core(Backend: type) type {
             font_scale: f32,
             font_ratio: f32,
             allocator: Allocator,
+            arena: *Arena,
         ) !void {
             try Backend.init(self);
 
             self.listeners = FixedVec(Listener, 2).init();
+            self.lines = List(Line, 1024).init(arena);
             self.buffers = try Cursor(Buffer).init(5, allocator);
             self.background_changes = try Vec(Change).init(20, allocator);
             self.foreground_changes = try Vec(Change).init(20, allocator);
+            self.commander = try Commander.init(Self, arena);
+            self.temp_arena = Arena.init("Temp", arena.alloc(u8, 0xFFFF)[0..0xFFFF]);
+            self.perm_arena = Arena.init("Prem", arena.alloc(u8, 0xFF)[0..0xFF]);
 
-            self.commander = try Commander.init(Self, allocator);
-
-            self.frame_rate = 30;
+            self.frame_rate = 60;
             self.repeating = false;
             self.rate = 20 * 1000 * 1000;
             self.delay = 200 * 1000 * 1000;
@@ -245,13 +255,16 @@ pub fn Core(Backend: type) type {
                     &self.background_changes,
                     cels.sub(&Size.init(0, 1)),
                     allocator,
+                    &self.lines,
+                    &self.perm_arena,
                 ),
             );
+
             self.command_line = try CommandLine.init(
                 cels,
                 &self.foreground_changes,
                 &self.background_changes,
-                allocator,
+                arena,
             );
 
             self.commander.set(.Window, self);
@@ -394,9 +407,9 @@ pub fn Core(Backend: type) type {
 
         pub fn deinit(self: *Self) void {
             self.buffers.deinit();
-            self.command_line.deinit();
             self.handle.deinit();
-            self.commander.deinit();
+
+            std.debug.print("time taken: {}\n", .{self.profiler / 1000000});
         }
 
         fn commands_handle() []const Fn {
@@ -427,6 +440,7 @@ pub fn Core(Backend: type) type {
                     content,
                     .Window,
                 ) catch {
+                    std.debug.print("pressed enter with: {s}\n", .{content});
                     self.commander.execute_string(
                         content,
                         .Buffer,
@@ -488,11 +502,12 @@ pub fn Core(Backend: type) type {
                     try self.command_line.show(&.{ args[0], " not found" });
                     return error.NotFound;
                 };
+
                 defer file.close();
 
                 const end_pos = try file.getEndPos();
-                const content = try self.allocator.alloc(u8, end_pos);
-                defer self.allocator.free(content);
+                const content = self.temp_arena.alloc(u8, end_pos)[0..end_pos];
+                defer self.temp_arena.reset();
 
                 if (try file.read(content) != end_pos)
                     return error.IncompleteContetent;
@@ -514,6 +529,8 @@ pub fn Core(Backend: type) type {
                         &self.background_changes,
                         cels.sub(&Size.init(0, 1)),
                         self.allocator,
+                        &self.lines,
+                        &self.perm_arena,
                     ),
                 );
 
@@ -532,10 +549,10 @@ pub fn Core(Backend: type) type {
             );
             defer file.close();
 
-            const content = try buffer.content(self.allocator);
-            defer content.deinit();
+            const content = buffer.content(&self.temp_arena);
+            defer self.temp_arena.reset();
 
-            _ = try file.write(content.items);
+            _ = try file.write(content);
 
             try self.command_line.show(&.{ buffer.name, " saved" });
         }

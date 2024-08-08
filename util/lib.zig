@@ -1,7 +1,7 @@
 const std = @import("std");
 pub const math = @import("math.zig");
 pub const collections = @import("collections.zig");
-pub const Arena = @import("allocator.zig").Allocator;
+pub const allocator = @import("allocator.zig");
 
 const Allocator = std.mem.Allocator;
 

@@ -5,6 +5,8 @@ const math = util.math;
 const Allocator = std.mem.Allocator;
 const Change = @import("core.zig").Change;
 const Vec = util.collections.Vec;
+const List = util.collections.List;
+const Arena = util.allocator.Arena;
 const CiclicVec = util.collections.CiclicVec;
 const Deque = util.collections.Cursor;
 const Fn = @import("command.zig").Fn;
@@ -14,7 +16,7 @@ const Coord = math.Vec2D;
 const Length = math.Vec2D;
 const Cursor = math.Vec2D;
 
-const Line = struct {
+pub const Line = struct {
     content: Vec(u8),
 
     const TAB: u32 = 2;
@@ -47,10 +49,6 @@ const Line = struct {
         }
 
         return i;
-    }
-
-    fn len(self: *const Line) u32 {
-        return self.content.len();
     }
 
     fn deinit(self: *const Line) void {
@@ -99,33 +97,43 @@ const Modification = struct {
         buffer: *Buffer,
         coord: *const Coord,
     ) !void {
+        buffer.bytes -= self.count;
+
         var left: u32 = self.count + coord.x;
         var line_count: u32 = coord.y;
+        var first_line = buffer.lines_.offset(buffer.line, coord.y);
+        var current_line: ?*Line = first_line;
 
-        for (coord.y..buffer.lines.len()) |i| {
-            const l = buffer.lines.items[i].content.len();
+        while (current_line) |line| {
+            const count = line.content.len();
 
-            if (l < left) {
-                left -= l + 1;
+            if (count < left) {
+                left -= count + 1;
             } else break;
 
             line_count += 1;
+            current_line = buffer.lines_.next(line);
         }
 
-        const last = buffer.lines.items[line_count].content.items[left..];
+        buffer.line_count -= line_count - coord.y;
+
+        const last_line = current_line orelse @panic("Should not be null");
+        const last_content = last_line.content.items[left..];
         util.copy(
             u8,
-            last,
-            buffer.lines.items[coord.y].content.items[coord.x..],
+            last_content,
+            first_line.content.items[coord.x..],
         );
 
-        buffer.lines.items[coord.y].content.items.len = last.len + coord.x;
+        first_line.content.items.len = last_content.len + coord.x;
 
-        for (coord.y + 1..line_count + 1) |i| {
-            buffer.lines.items[i].deinit();
+        if (line_count - coord.y > 0) {
+            if (buffer.lines_.next(first_line)) |first_line_next| {
+                const last_id = buffer.lines_.id(last_line);
+                const first_line_next_id = buffer.lines_.id(first_line_next);
+                buffer.lines_.remove_list(first_line_next_id, last_id);
+            }
         }
-
-        buffer.lines.remove_range(coord.y + 1, line_count + 1) catch {};
 
         if (buffer.rect.contains(coord)) {
             const y = coord.y - buffer.rect.coord.y;
@@ -142,6 +150,7 @@ const Modification = struct {
         buffer: *Buffer,
         coord: *const Coord,
     ) !void {
+        buffer.bytes += self.count;
         const content =
             buffer.modification_chain.chars.items[self.index .. self.index +
             self.count];
@@ -151,40 +160,50 @@ const Modification = struct {
             if (content[i] == '\n') line_count += 1;
         }
 
-        try buffer.lines.shift(coord.y + 1, line_count);
-        const first_line_len = buffer.lines.items[coord.y].content.len();
+        buffer.line_count += line_count;
+
+        const first_line = buffer.lines_.offset(buffer.line, coord.y);
+        const first_id = buffer.lines_.id(first_line);
+        const first_line_len = first_line.content.len();
 
         var start: u32 = 0;
-        var line_index: u32 = coord.y;
         var col_index: u32 = coord.x;
+
+        var current_line: *Line = first_line;
+        var current_id = first_id;
         for (0..content.len) |i| {
             if (content[i] == '\n') {
-                const line = try buffer.lines.get_mut(line_index);
-                try line.insert_string(content[start..i], col_index);
+                try current_line.insert_string(content[start..i], col_index);
+
+                const next = buffer.lines_.new();
+                const next_id = buffer.lines_.id(next);
+
+                buffer.lines_.insert_after(current_id, next_id);
+
+                next.* = try Line.init(
+                    "",
+                    current_line.content.allocator,
+                );
+
+                current_line = next;
+                current_id = next_id;
 
                 start = @intCast(i + 1);
-                line_index += 1;
                 col_index = 0;
-
-                buffer.lines.items[line_index] = try Line.init(
-                    "",
-                    buffer.lines.allocator,
-                );
             }
         }
 
-        try buffer.lines.items[line_index].insert_string(
+        try current_line.insert_string(
             content[start..content.len],
             col_index,
         );
 
         if (line_count != 0) {
-            const first_line = &buffer.lines.items[coord.y];
             const trunc = first_line.content.truncate(
-                coord.x + first_line.len() - first_line_len,
+                coord.x + first_line.content.len() - first_line_len,
             );
 
-            try buffer.lines.items[coord.y + line_count].content.extend(trunc);
+            try current_line.content.extend(trunc);
         }
 
         if (buffer.rect.contains(coord)) {
@@ -312,10 +331,14 @@ const ModificationChain = struct {
 
 pub const Buffer = struct {
     name: []u8,
-    lines: Vec(Line),
+    line: *Line,
+    current_line: *Line,
+    lines_: *List(Line, 1024),
     cursor: Cursor,
     selection: Selection,
     rect: Rect,
+    bytes: u32,
+    line_count: u32,
     modification_chain: ModificationChain,
     background_changes: *Vec(Change),
     foreground_changes: *Vec(Change),
@@ -327,6 +350,8 @@ pub const Buffer = struct {
         background_changes: *Vec(Change),
         size: Length,
         allocator: Allocator,
+        lines: *List(Line, 1024),
+        arena: *Arena,
     ) !Buffer {
         var self: Buffer = undefined;
         const len: u32 = @intCast(buf.len);
@@ -335,62 +360,85 @@ pub const Buffer = struct {
             allocator,
         );
 
+        self.bytes = len;
+        self.lines_ = lines;
         self.foreground_changes = foreground_changes;
         self.background_changes = background_changes;
-        self.lines = try Vec(Line).init(
-            (len + Line.CHAR_COUNT) / Line.CHAR_COUNT,
-            allocator,
-        );
+        self.line_count = 1;
+        self.line = lines.new();
+        self.current_line = self.line;
 
-        {
+        if (len != 0) {
+            var line = self.line;
+            var line_id = self.lines_.id(line);
             var start: usize = 0;
             for (0..len) |i| {
-                if (buf[i] == '\n') {
-                    try self.lines.push(
-                        try Line.init(buf[start..i], allocator),
-                    );
+                if (buf[i] == '\n' and i != len - 1) {
+                    line.* = try Line.init(buf[start..i], allocator);
 
+                    const new_line = self.lines_.new();
+                    const new_id = self.lines_.id(new_line);
+
+                    self.lines_.insert_after(line_id, new_id);
+
+                    line_id = new_id;
+                    line = new_line;
+                    self.line_count += 1;
                     start = i + 1;
                 }
-            }
-        }
 
-        {
-            if (len == 0) {
-                try self.lines.push(try Line.init("", allocator));
+                self.bytes += 1;
             }
+
+            line.* = try Line.init(buf[start .. len - 1], allocator);
         }
 
         self.cursor = Cursor.init(0, 0);
         self.selection = Selection.init(self.cursor);
         self.rect = Rect.init(Coord.init(0, 0), size);
-        self.name = try allocator.alloc(u8, name.len);
+        self.name = arena.alloc(u8, @intCast(name.len))[0..name.len];
         util.copy(u8, name, self.name);
 
+        try self.build_foreground(0, self.rect.size.y);
         try self.background_changes.push(
             Change.add_background(self.cursor.x, self.cursor.y),
         );
-        try self.build_foreground(0, self.rect.size.y);
 
         return self;
     }
 
     pub fn move_cursor(self: *Buffer, to: *const Cursor) !void {
-        try self.selection_opeartion(Change.remove);
+        try self.selection_operation(Change.remove);
+
+        self.current_line = self.lines_.move(
+            self.current_line,
+            @intCast(self.cursor.y),
+            @intCast(to.y),
+        );
 
         self.cursor.move(to);
         self.selection.move(to);
+
         try self.reajust();
-        try self.selection_opeartion(Change.add_background);
+        try self.selection_operation(Change.add_background);
         self.modification_chain.register_new = true;
     }
 
-    fn selection_opeartion(self: *Buffer, f: fn (u32, u32) Change) !void {
+    fn selection_operation(self: *Buffer, f: fn (u32, u32) Change) !void {
         const rect_end = self.rect.end();
         const greater = self.cursor.greater(&self.selection.cursor);
 
-        var s = if (greater) self.selection.cursor else self.cursor;
-        var e = if (greater) self.cursor else self.selection.cursor;
+        var s: Cursor = undefined;
+        var e: Cursor = undefined;
+        var first_line: *Line = undefined;
+
+        if (greater) {
+            s = self.selection.cursor;
+            e = self.cursor;
+        } else {
+            s = self.cursor;
+            e = self.selection.cursor;
+        }
 
         s.x = math.clamp(self.rect.coord.x, s.x, rect_end.x - 1);
         e.x = math.clamp(self.rect.coord.x, e.x, rect_end.x - 1);
@@ -400,13 +448,21 @@ pub const Buffer = struct {
             &rect_end.sub(&Cursor.init(1, 1)),
         ).sub(&self.rect.coord);
 
+        const start_abs = start.y + self.rect.coord.y;
+
+        if (self.cursor.y > start_abs) {
+            first_line = self.lines_.back(self.current_line, self.cursor.y - start_abs);
+        } else {
+            first_line = self.lines_.offset(self.current_line, start_abs - self.cursor.y);
+        }
+
         if (start.y == end.y) {
             for (start.x..end.x + 1) |j| {
                 try self.background_changes.push(f(@intCast(j), start.y));
             }
         } else {
             const start_line_end = math.min(
-                self.lines.items[start.y + self.rect.coord.y].len() + 1,
+                first_line.content.len() + 1,
                 rect_end.x,
             ) - self.rect.coord.x;
 
@@ -418,13 +474,12 @@ pub const Buffer = struct {
                 try self.background_changes.push(f(@intCast(j), end.y));
             }
 
+            var current_line = self.lines_.next(first_line).?;
             for (start.y + 1..end.y) |i| {
-                const line = try self.lines.get(self.rect.coord.y + i);
-
-                if (line.len() < self.rect.coord.x) continue;
+                if (current_line.content.len() < self.rect.coord.x) continue;
 
                 const middle_line_end = math.min(
-                    line.len() + 1 - self.rect.coord.x,
+                    current_line.content.len() + 1 - self.rect.coord.x,
                     self.rect.size.x,
                 );
 
@@ -433,6 +488,8 @@ pub const Buffer = struct {
                         f(@intCast(j), @intCast(i)),
                     );
                 }
+
+                current_line = self.lines_.next(current_line).?;
             }
         }
     }
@@ -441,34 +498,42 @@ pub const Buffer = struct {
         const rect_end = self.rect.end();
         const end = Coord.init(
             rect_end.x,
-            math.min(rect_end.y, self.rect.coord.y + end_line),
+            math.min(self.rect.size.y, end_line),
         );
 
-        const lines = try self.lines.range(
+        var lines: u32 = start_line;
+        var current_line: *Line = self.lines_.offset(
+            self.line,
             self.rect.coord.y + start_line,
-            end.y,
         );
 
-        for (lines, 0..) |line, i| {
-            const cols = try line.content.range(self.rect.coord.x, end.x);
+        for (start_line..end.y) |_| {
+            const cols = try current_line.content.range(
+                self.rect.coord.x,
+                end.x,
+            );
+
             for (cols, 0..) |char, j| {
                 try self.foreground_changes.push(
                     Change.add_char(
                         char,
                         @intCast(j),
-                        @intCast(i + start_line),
+                        @intCast(lines),
                     ),
                 );
             }
 
             for (cols.len..self.rect.size.x) |j| {
                 try self.foreground_changes.push(
-                    Change.remove(@intCast(j), @intCast(i + start_line)),
+                    Change.remove(@intCast(j), @intCast(lines)),
                 );
             }
+
+            lines += 1;
+            current_line = self.lines_.next(current_line) orelse break;
         }
 
-        for (lines.len + start_line..end.y - self.rect.coord.y) |i| {
+        for (lines..end.y) |i| {
             for (0..self.rect.size.x) |j| {
                 try self.foreground_changes.push(
                     Change.remove(@intCast(j), @intCast(i)),
@@ -508,15 +573,27 @@ pub const Buffer = struct {
         self.modification_chain.register_new = false;
     }
 
-    pub fn content(self: *const Buffer, allocator: Allocator) !Vec(u8) {
-        var vec = try Vec(u8).init(self.lines.len() * 40, allocator);
+    pub fn content(self: *const Buffer, arena: *Arena) []u8 {
+        var vec = arena.alloc(u8, self.bytes);
 
-        for (self.lines.items) |line| {
-            try vec.extend(line.content.items);
-            try vec.push('\n');
+        var len: u32 = 0;
+        var current_line: ?*Line = self.line;
+        while (current_line) |line| {
+            const line_len = line.content.len();
+            util.copy(u8, line.content.items, vec[len..self.bytes]);
+
+            vec[len + line_len] = '\n';
+            len += @intCast(line_len + 1);
+            current_line = self.lines_.next(line);
         }
 
-        return vec;
+        return vec[0..self.bytes];
+    }
+
+    pub fn mult_keys() []const Fn {
+        return &[_]Fn{
+            Fn{ .f = mult_test, .string = "C-x C-h" },
+        };
     }
 
     pub fn commands() []const Fn {
@@ -530,50 +607,45 @@ pub const Buffer = struct {
             Fn{ .f = line_end, .string = "C-e" },
             Fn{ .f = line_start, .string = "C-a" },
             Fn{ .f = space, .string = "Spc" },
-            Fn{ .f = scroll_up, .string = "A-v" },
-            Fn{ .f = scroll_down, .string = "C-v" },
+            // Fn{ .f = scroll_up, .string = "A-v" },
+            // Fn{ .f = scroll_down, .string = "C-v" },
             Fn{ .f = selection, .string = "C-Spc" },
             Fn{ .f = undo, .string = "C-u" },
             Fn{ .f = redo, .string = "C-U" },
-            Fn{ .f = mult_test, .string = "C-x C-h" },
             Fn{ .f = next_word, .string = "A-f" },
             Fn{ .f = prev_word, .string = "A-b" },
-            Fn{ .f = buffer_start, .string = "A-<" },
-            Fn{ .f = buffer_end, .string = "A->" },
+            // Fn{ .f = buffer_start, .string = "A-<" },
+            // Fn{ .f = buffer_end, .string = "A->" },
         };
     }
 
     pub fn string_commands() []const Fn {
         return &[_]Fn{
-            Fn{ .f = search_foward, .string = "searchf" },
-            Fn{ .f = search_backward, .string = "searchb" },
+            // Fn{ .f = search_foward, .string = "searchf" },
+            // Fn{ .f = search_backward, .string = "searchb" },
         };
     }
 
     pub fn hide(self: *Buffer) !void {
-        try self.selection_opeartion(Change.remove);
+        try self.selection_operation(Change.remove);
     }
 
     pub fn show(self: *Buffer) !void {
         try self.build_foreground(0, self.rect.size.y);
-        try self.selection_opeartion(Change.add_background);
+        try self.selection_operation(Change.add_background);
     }
 
     pub fn deinit(self: *const Buffer) void {
         for (self.lines) |line| {
             line.deinit();
         }
-
-        self.lines.deinit();
-        self.lines.allocator.free(self.name);
     }
 };
 
 fn enter(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    const line = try self.lines.get(self.cursor.y);
-    const indent = math.min(line.indent(), self.cursor.x);
+    const indent = math.min(self.current_line.indent(), self.cursor.x);
     const modification = Modification{
         .count = 1 + indent,
         .index = self.modification_chain.chars.len(),
@@ -581,7 +653,7 @@ fn enter(ptr: *anyopaque, _: []const []const u8) !void {
 
     try self.modification_chain.chars.push('\n');
     try self.modification_chain.chars.extend(
-        line.content.items[0..indent],
+        self.current_line.content.items[0..indent],
     );
     try modification.do_insert(self, &self.cursor);
     try self.modification_chain.push(self.cursor, modification, .Insert);
@@ -594,10 +666,11 @@ fn enter(ptr: *anyopaque, _: []const []const u8) !void {
 fn next_line(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    const y = self.cursor.y + 1;
-    const line = try self.lines.get(y);
+    const next = self.lines_.next(self.current_line) orelse
+        return error.NoNextLine;
 
-    const x = math.min(self.cursor.x, line.len());
+    const x = math.min(self.cursor.x, next.content.len());
+    const y = self.cursor.y + 1;
     const new_cursor = Cursor.init(x, y);
 
     try self.move_cursor(&new_cursor);
@@ -606,13 +679,11 @@ fn next_line(ptr: *anyopaque, _: []const []const u8) !void {
 fn prev_line(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    try util.assert(self.cursor.y > 0);
+    const prev = self.lines_.prev(self.current_line) orelse
+        return error.NoPrevLine;
 
     const y = self.cursor.y - 1;
-    const line = try self.lines.get(y);
-
-    const len = line.len();
-    const x = math.min(self.cursor.x, len);
+    const x = math.min(self.cursor.x, prev.content.len());
 
     try self.move_cursor(&Cursor.init(x, y));
 }
@@ -620,15 +691,14 @@ fn prev_line(ptr: *anyopaque, _: []const []const u8) !void {
 fn next_char(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    var line = try self.lines.get(self.cursor.y);
-
     var y = self.cursor.y;
     var x = self.cursor.x;
 
-    if (x == line.len()) {
+    if (x == self.current_line.content.len()) {
         y += 1;
         x = 0;
-        try util.assert(y < self.lines.len());
+        _ = self.lines_.next(self.current_line) orelse
+            return error.NoNextLine;
     } else x += 1;
 
     try self.move_cursor(&Cursor.init(x, y));
@@ -639,12 +709,15 @@ fn prev_char(ptr: *anyopaque, _: []const []const u8) !void {
 
     var y = self.cursor.y;
     var x = self.cursor.x;
+    var line = self.current_line;
 
     if (x < 1) {
-        try util.assert(y > 0);
-        y -= 1;
+        if (self.lines_.prev(line)) |l| {
+            line = l;
+        } else return error.NoPrevLine;
 
-        x = self.lines.items[y].content.len() - 1;
+        y -= 1;
+        x = line.content.len();
     } else x -= 1;
 
     try self.move_cursor(&Coord.init(x, y));
@@ -653,8 +726,9 @@ fn prev_char(ptr: *anyopaque, _: []const []const u8) !void {
 fn line_end(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    const line = try self.lines.get(self.cursor.y);
-    try self.move_cursor(&Cursor.init(line.len(), self.cursor.y));
+    const line = self.current_line;
+    try util.assert(self.cursor.x < line.content.len());
+    try self.move_cursor(&Cursor.init(line.content.len(), self.cursor.y));
 }
 
 fn line_start(ptr: *anyopaque, _: []const []const u8) !void {
@@ -668,10 +742,25 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
     var boundary = self.cursor.sort(&self.selection.cursor);
+    var first_line: *Line = undefined;
+    var last_line: *Line = undefined;
+    if (self.cursor.y == boundary[1].y) {
+        last_line = self.current_line;
+        first_line = self.lines_.back(
+            self.current_line,
+            self.cursor.y - boundary[0].y,
+        );
+    } else {
+        first_line = self.current_line;
+        last_line = self.lines_.offset(
+            self.current_line,
+            boundary[1].y - self.cursor.y,
+        );
+    }
 
-    if (boundary[1].x < self.lines.items[boundary[1].y].len()) {
+    if (boundary[1].x < last_line.content.len()) {
         boundary[1].x += 1;
-    } else if (self.lines.len() > boundary[1].y + 1) {
+    } else if (self.line_count > boundary[1].y + 1) {
         boundary[1].x = 0;
         boundary[1].y += 1;
     }
@@ -681,26 +770,29 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
         .index = self.modification_chain.chars.len(),
     };
 
-    var content = self.lines.items[boundary[0].y].content.items[boundary[0].x..];
-    for (boundary[0].y + 1..boundary[1].y + 1) |i| {
+    var content = first_line.content.items[boundary[0].x..];
+    var current_line = first_line;
+    for (boundary[0].y + 1..boundary[1].y + 1) |_| {
         try self.modification_chain.chars.extend(content);
         try self.modification_chain.chars.push('\n');
 
         modification.count += @intCast(content.len + 1);
-        content = self.lines.items[i].content.items[0..];
+        current_line = self.lines_.next(current_line).?;
+        content = current_line.content.items[0..];
     }
 
     const start = if (boundary[0].y != boundary[1].y) 0 else boundary[0].x;
     content = content[0 .. boundary[1].x - start];
     modification.count += @intCast(content.len);
-    try self.modification_chain.chars.extend(content);
 
-    try self.selection_opeartion(Change.remove);
+    try self.modification_chain.chars.extend(content);
+    try self.selection_operation(Change.remove);
     try modification.do_delete(self, &boundary[0]);
     try self.modification_chain.push(boundary[0], modification, .Delete);
 
     self.selection.active = false;
     self.selection.move(&self.cursor);
+    self.current_line = first_line;
     try self.move_cursor(&boundary[0]);
     self.modification_chain.register_new = false;
 }
@@ -712,43 +804,43 @@ fn selection(ptr: *anyopaque, _: []const []const u8) !void {
     try self.move_cursor(&self.cursor);
 }
 
-fn scroll_down(ptr: *anyopaque, _: []const []const u8) !void {
-    const self: *Buffer = @ptrCast(@alignCast(ptr));
-    if (self.rect.coord.y + 1 >= self.lines.len()) return error.NoMoreSpace;
+// fn scroll_down(ptr: *anyopaque, _: []const []const u8) !void {
+//     const self: *Buffer = @ptrCast(@alignCast(ptr));
+//     if (self.rect.coord.y + 1 >= self.line_count) return error.NoMoreSpace;
 
-    const size = math.min(
-        self.rect.coord.y + self.rect.size.y / 2,
-        self.lines.len() - 1,
-    );
+//     const size = math.min(
+//         self.rect.coord.y + self.rect.size.y / 2,
+//         self.lines.len() - 1,
+//     );
 
-    try self.selection_opeartion(Change.remove);
-    self.rect.coord.move(&Coord.init(0, size));
+//     try self.selection_operation(Change.remove);
+//     self.rect.coord.move(&Coord.init(0, size));
 
-    const fit = self.rect.fit(&self.cursor);
-    self.cursor.move(&fit);
-    self.selection.move(&fit);
+//     const fit = self.rect.fit(&self.cursor);
+//     self.cursor.move(&fit);
+//     self.selection.move(&fit);
 
-    try self.build_foreground(0, self.rect.size.y);
-    try self.selection_opeartion(Change.add_background);
-}
+//     try self.build_foreground(0, self.rect.size.y);
+//     try self.selection_operation(Change.add_background);
+// }
 
-fn scroll_up(ptr: *anyopaque, _: []const []const u8) !void {
-    const self: *Buffer = @ptrCast(@alignCast(ptr));
-    if (self.rect.coord.y == 0) return error.NoMoreSpace;
+// fn scroll_up(ptr: *anyopaque, _: []const []const u8) !void {
+//     const self: *Buffer = @ptrCast(@alignCast(ptr));
+//     if (self.rect.coord.y == 0) return error.NoMoreSpace;
 
-    const half = math.min(self.rect.size.y / 2, self.rect.coord.y);
-    const size = self.rect.coord.y - half;
+//     const half = math.min(self.rect.size.y / 2, self.rect.coord.y);
+//     const size = self.rect.coord.y - half;
 
-    try self.selection_opeartion(Change.remove);
-    self.rect.coord.move(&Coord.init(0, size));
+//     try self.selection_operation(Change.remove);
+//     self.rect.coord.move(&Coord.init(0, size));
 
-    const fit = self.rect.fit(&self.cursor);
-    self.cursor.move(&fit);
-    self.selection.move(&fit);
+//     const fit = self.rect.fit(&self.cursor);
+//     self.cursor.move(&fit);
+//     self.selection.move(&fit);
 
-    try self.build_foreground(0, self.rect.size.y);
-    try self.selection_opeartion(Change.add_background);
-}
+//     try self.build_foreground(0, self.rect.size.y);
+//     try self.selection_operation(Change.add_background);
+// }
 
 fn space(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
@@ -795,33 +887,38 @@ fn redo(ptr: *anyopaque, _: []const []const u8) !void {
 
 fn next_word(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
-    const line = &self.lines.items[self.cursor.y];
 
     var flag = false;
-    const content = line.content.items[self.cursor.x..];
-    for (0..content.len) |j| {
-        if (util.is_ascii(content[j])) {
-            flag = true;
-        } else if (flag) {
-            try self.move_cursor(&Cursor.init(
-                @intCast(j + self.cursor.x),
-                self.cursor.y,
-            ));
-            return;
-        }
-    }
+    var current_line: ?*Line = self.current_line;
+    var col = self.cursor.x;
+    var content: []const u8 = undefined;
+    while (current_line) |line| {
+        content = line.content.items[col..];
 
-    if (self.cursor.x < line.content.len()) {
-        try self.move_cursor(&Cursor.init(line.content.len(), self.cursor.y));
+        for (0..content.len) |j| {
+            if (util.is_ascii(content[j])) {
+                flag = true;
+            } else if (flag) {
+                try self.move_cursor(&Cursor.init(
+                    @intCast(j + col),
+                    self.cursor.y,
+                ));
+                self.current_line = line;
+
+                return;
+            }
+        }
+
+        current_line = self.lines_.next(line);
+        col = 0;
     }
 }
 
 fn prev_word(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *Buffer = @ptrCast(@alignCast(ptr));
-    const line = &self.lines.items[self.cursor.y];
 
     var flag = false;
-    const content = line.content.items[0..self.cursor.x];
+    const content = self.current_line.content.items[0..self.cursor.x];
     for (0..content.len) |j| {
         if (util.is_ascii(content[self.cursor.x - j - 1])) {
             flag = true;
@@ -833,10 +930,6 @@ fn prev_word(ptr: *anyopaque, _: []const []const u8) !void {
             return;
         }
     }
-
-    if (self.cursor.x != 0) {
-        try self.move_cursor(&Cursor.init(0, self.cursor.y));
-    }
 }
 
 fn buffer_start(ptr: *anyopaque, _: []const []const u8) !void {
@@ -844,94 +937,110 @@ fn buffer_start(ptr: *anyopaque, _: []const []const u8) !void {
 
     if (self.cursor.x != 0 or self.cursor.y != 0) {
         try self.move_cursor(&Cursor.init(0, 0));
+        self.current_line = self.line;
     }
 }
 
-fn buffer_end(ptr: *anyopaque, _: []const []const u8) !void {
-    const self: *Buffer = @ptrCast(@alignCast(ptr));
+// fn buffer_end(ptr: *anyopaque, _: []const []const u8) !void {
+//     const self: *Buffer = @ptrCast(@alignCast(ptr));
 
-    const last = try self.lines.last();
+//     if (self.cursor.y != self.line_count - 1) {
+//         const last = self.lines_.offset(
+//             self.current_line,
+//             self.line_count - 1 - self.cursor.y,
+//         );
 
-    if (self.cursor.x != last.len() or
-        self.cursor.y != self.lines.len() - 1)
-    {
-        try self.move_cursor(&Cursor.init(last.len(), self.lines.len() - 1));
-    }
-}
+//         try self.move_cursor(
+//             &Cursor.init(last.content.len(), self.lines.len() - 1),
+//         );
+//     } else if (self.current_line.content.len() > self.cursor.x) {
+//         try self.move_cursor(
+//             &Cursor.init(self.current_line.content.len(), self.cursor.y),
+//         );
+//     }
+// }
 
-fn search_foward(ptr: *anyopaque, args: []const []const u8) !void {
-    if (args.len != 1 and args[0].len == 0) return error.InvalidArgumentNumber;
+// fn search_foward(ptr: *anyopaque, args: []const []const u8) !void {
+//     if (args.len != 1 and args[0].len == 0) return error.InvalidArgumentNumber;
 
-    const self: *Buffer = @ptrCast(@alignCast(ptr));
-    const string = args[0];
+//     const self: *Buffer = @ptrCast(@alignCast(ptr));
+//     const string = args[0];
 
-    var j: u32 = 0;
+//     var j: u32 = 0;
 
-    var start = self.cursor.copy();
-    var end = self.cursor.copy();
-    var col: u32 = self.cursor.x;
-    std.debug.print("argument: {s}????\n", .{args[0]});
+//     var start = self.cursor.copy();
+//     var end = self.cursor.copy();
+//     var col: u32 = self.cursor.x;
 
-    for (self.cursor.y..self.lines.len()) |i| {
-        const line = &self.lines.items[i];
+//     for (self.cursor.y..self.lines.len()) |i| {
+//         const line = &self.lines.items[i];
 
-        for (line.content.items[col..], 0..) |char, k| {
-            if (string[j] != char and j != 0) {
-                j = 0;
-                start.move(&Cursor.init(@intCast(col + k + 1), @intCast(i)));
-            } else {
-                j += 1;
+//         for (line.content.items[col..], 0..) |char, k| {
+//             if (string[j] != char and j != 0) {
+//                 j = 0;
+//                 start.move(&Cursor.init(@intCast(col + k + 1), @intCast(i)));
+//             } else {
+//                 j += 1;
 
-                if (j == string.len) {
-                    end.move(&Cursor.init(@intCast(k), @intCast(i)));
+//                 if (j == string.len) {
+//                     end.move(&Cursor.init(@intCast(k), @intCast(i)));
 
-                    self.selection.move(&end);
-                    self.selection.active = true;
-                    try self.move_cursor(&start);
-                    return;
-                }
-            }
-        }
+//                     self.selection.move(&end);
+//                     self.selection.active = true;
+//                     try self.move_cursor(&start);
+//                     return;
+//                 }
+//             }
+//         }
 
-        col = 0;
-    }
-}
+//         col = 0;
+//     }
+// }
 
-fn search_backward(ptr: *anyopaque, args: []const []const u8) !void {
-    if (args.len != 1 and args[0].len == 0) return error.InvalidArgumentNumber;
+// fn search_backward(ptr: *anyopaque, args: []const []const u8) !void {
+//     if (args.len != 1 and args[0].len == 0) return error.InvalidArgumentNumber;
 
-    const self: *Buffer = @ptrCast(@alignCast(ptr));
-    const string = args[0];
+//     const self: *Buffer = @ptrCast(@alignCast(ptr));
+//     const string = args[0];
 
-    var j: u32 = 0;
+//     var j: u32 = 0;
 
-    var start = self.cursor.copy();
-    var end = self.cursor.copy();
-    var content = self.lines.items[self.cursor.y].content.items[0..self.cursor.x];
+//     var start = self.cursor.copy();
+//     var end = self.cursor.copy();
+//     var content = self.lines.items[
+//         self.cursor.y
+//     ].content.items[0..self.cursor.x];
 
-    for (0..self.cursor.y + 1) |i| {
-        for (0..content.len) |k| {
-            if (string[string.len - j - 1] != content[content.len - k - 1] and j != 0) {
-                j = 0;
-                end.move(&Cursor.init(@intCast(content.len - k), @intCast(i)));
-            } else {
-                j += 1;
+//     for (0..self.cursor.y + 1) |i| {
+//         for (0..content.len) |k| {
+//             if (string[string.len - j - 1] !=
+//                 content[content.len - k - 1] and j != 0)
+//             {
+//                 j = 0;
+//                 end.move(&Cursor.init(
+//                     @intCast(content.len - k),
+//                     @intCast(i),
+//                 ));
+//             } else {
+//                 j += 1;
 
-                if (j == string.len) {
-                    start.move(&Cursor.init(@intCast(content.len - k - 1), @intCast(i)));
-                    self.selection.move(&end);
-                    self.selection.active = true;
-                    try self.move_cursor(&start);
-                    return;
-                }
-            }
-        }
+//                 if (j == string.len) {
+//                     start.move(&Cursor.init(
+//                         @intCast(content.len - k - 1),
+//                         @intCast(i),
+//                     ));
+//                     self.selection.move(&end);
+//                     self.selection.active = true;
+//                     try self.move_cursor(&start);
+//                     return;
+//                 }
+//             }
+//         }
 
-        const line = &self.lines.items[self.cursor.y - i];
-        content = line.content.items[0..];
-    }
-
-}
+//         const line = &self.lines.items[self.cursor.y - i];
+//         content = line.content.items[0..];
+//     }
+// }
 
 fn mult_test(ptr: *anyopaque, _: []const []const u8) !void {
     _ = ptr;

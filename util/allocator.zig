@@ -1,121 +1,52 @@
 const std = @import("std");
+const Vec = @import("collections.zig").Vec;
+const List = @import("collections.zig").List;
 
-pub const Allocator = struct {
+pub fn malloc(size: usize) []u8 {
+    const ptr: [*]u8 = @ptrCast(std.c.malloc(size) orelse @panic("Coldn ot allocate"));
+
+    return ptr[0..size];
+}
+
+pub fn free(buffer: []u8) void {
+    std.c.free(@ptrCast(buffer.ptr));
+}
+
+pub const Arena = struct {
     ptr: *anyopaque,
     next_free: usize,
     size: usize,
+    name: []const u8,
 
-    fn init(size: usize) Allocator {
+    pub fn init(name: []const u8, buffer: []u8) Arena {
         return .{
-            .ptr = std.c.malloc(size) orelse @panic("Failed to allocate\n"),
+            .ptr = @ptrCast(buffer.ptr),
             .next_free = 0,
-            .size = size,
+            .size = buffer.len,
+            .name = name,
         };
     }
 
-    fn alloc(self: *Allocator, T: type, size: usize) *T {
+    pub fn alloc(self: *Arena, T: type, size: usize) [*]T {
         const length = @sizeOf(T) * size;
-        if (self.next_free + length > self.size) @panic("No more space available");
+        std.debug.print("{s}: {}, units of size: {}, for: {s}, total: {}, current size: {}\n", .{ self.name, size, @sizeOf(T), @typeName(T), length, self.size - self.next_free });
+        if (self.next_free + length > self.size) {
+            @panic("No more space available");
+        }
 
         var addr = @intFromPtr(self.ptr);
         addr += self.next_free;
         self.next_free += length;
 
-        return @ptrFromInt(addr);
+        const ptr: *anyopaque = @ptrFromInt(addr);
+
+        return @ptrCast(@alignCast(ptr));
     }
 
-    fn deinit(self: *const Allocator) void {
-        std.c.free(self.ptr);
+    pub fn reset(self: *Arena) void {
+        self.next_free = 0;
     }
 };
-
-pub fn Arena(T: type, L: usize) type {
-    return struct {
-        ptr: [*]T,
-        loc: [*]Node,
-        free: usize,
-
-        const Node = struct {
-            data: u32,
-            next: u32,
-            prev: u32,
-        };
-
-        const size = (@sizeOf(T) + @sizeOf(Node)) * L;
-        const Self = @This();
-
-        fn init(allocator: *Allocator) Self {
-            var self: Self = undefined;
-
-            self.loc = @ptrCast(allocator.alloc(Node, L));
-            self.ptr = @ptrCast(allocator.alloc(T, L));
-
-            for (0..L) |i| {
-                self.loc[i] = Node{
-                    .data = @intCast(i),
-                    .next = @intCast(if (i + 1 == L) 0 else i + 1),
-                    .prev = @intCast(if (i == 0) L - 1 else i - 1),
-                };
-            }
-
-            self.free = 1;
-
-            return self;
-        }
-
-        fn new(self: *Self) *T {
-            if (self.free == 0) @panic("Should not be zero");
-
-            const e = &self.loc[self.free];
-            self.free = e.next;
-
-            return &self.ptr[e.data];
-        }
-
-        fn remove(self: *Self, item: *T) void {
-            const pos = (@intFromPtr(item) - @intFromPtr(self.ptr)) /
-                @sizeOf(T);
-
-            self.loc[pos].next = self.free;
-            self.free = pos;
-        }
-
-        fn id(self: *Self, item: *T) u16 {
-            return @intCast((@intFromPtr(item) - @intFromPtr(self.ptr)) /
-                @sizeOf(T));
-        }
-
-        fn first(self: *Self) *T {
-            return &self.ptr[0];
-        }
-
-        fn next(self: *Self, item: *T) *T {
-            const pos = (@intFromPtr(item) - @intFromPtr(self.ptr)) /
-                @sizeOf(T);
-
-            return &self.ptr[
-                self.loc[
-                    self.loc[
-                        pos
-                    ].next
-                ].data
-            ];
-        }
-
-        fn prev(self: *Self, item: *T) *T {
-            const pos = @intFromPtr(item) - @intFromPtr(self.ptr);
-
-            return &self.ptr[
-                self.loc[
-                    self.loc[
-                        pos /
-                            @sizeOf(T)
-                    ].prev
-                ].data
-            ];
-        }
-    };
-}
 
 // pub fn LinkedList(T: type) type {
 //     return struct {
@@ -145,48 +76,62 @@ pub fn Arena(T: type, L: usize) type {
 //     };
 // }
 
-test "Init" {
-    const L = 1000000;
-    const A = Arena(u8, L);
+// test "Init" {
+//     const L = 1000;
+//     const T = u32;
+//     const A = List(T, L);
 
-    var allocator = Allocator.init(A.size);
-    var arena = A.init(&allocator);
+//     const buffer = malloc(A.size);
+//     defer free(buffer);
 
-    const start = try std.time.Instant.now();
-    for (1..L) |i| {
-        _ = arena.new();
-        arena.loc[i - 1].next = @intCast(i);
-        arena.loc[i].prev = @intCast(i - 1);
-    }
-    const end = try std.time.Instant.now();
-    const l = end.since(start);
+//     var allocator = Arena.init(buffer);
+//     var arena = A.init(&allocator);
 
-    std.debug.print("time: {}\n", .{l / 1000000});
+//     var start = try std.time.Instant.now();
+//     for (1..L) |i| {
+//         const t = arena.new();
+//         t.* = @truncate(i);
+//         arena.loc[i - 1].next = @intCast(i);
+//         arena.loc[i].prev = @intCast(i - 1);
+//     }
+//     var end = try std.time.Instant.now();
+//     const l = end.since(start);
 
-    // const T = u8;
-    // const L = 4;
-    // const Region = Arena(T, L);
-    // const List = LinkedList(T);
+//     start = try std.time.Instant.now();
+//     var vec = try Vec(T).init(L, std.testing.allocator);
+//     defer vec.deinit();
+//     for (0..L) |i| {
+//         try vec.push(@truncate(i));
+//     }
+//     end = try std.time.Instant.now();
+//     const v = end.since(start);
 
-    // var arena = Region.init(&allocator);
-    // const list = List.init(arena.new());
-    // const first = list.first;
+//     std.debug.print("list: {}, vec: {}\n", .{ l / 1000000, v / 1000000 });
 
-    // try std.testing.expect(@intFromPtr(arena.ptr) == @intFromPtr(first));
-    // arena.destroy(first);
+//     // const T = u8;
+//     // const L = 4;
+//     // const Region = Arena(T, L);
+//     // const List = LinkedList(T);
 
-    // const second = arena.new();
+//     // var arena = Region.init(&allocator);
+//     // const list = List.init(arena.new());
+//     // const first = list.first;
 
-    // try std.testing.expect(@intFromPtr(arena.ptr) == @intFromPtr(second));
+//     // try std.testing.expect(@intFromPtr(arena.ptr) == @intFromPtr(first));
+//     // arena.destroy(first);
 
-    // defer allocator.deinit();
-}
+//     // const second = arena.new();
+
+//     // try std.testing.expect(@intFromPtr(arena.ptr) == @intFromPtr(second));
+
+//     // defer allocator.deinit();
+// }
 
 test "benchmark" {
     // const T = u32;
     // const L = 1000000;
     // const Region = Arena(T, L);
-    // var allocator = Allocator.init(@sizeOf(Region) * L + @sizeOf(T) * L);
+    // var allocator = Arena.init(@sizeOf(Region) * L + @sizeOf(T) * L);
 
     // var arena = Region.init(&allocator);
     // const List = LinkedList(T);

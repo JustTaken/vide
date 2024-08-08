@@ -9,15 +9,18 @@ const Fn = @import("command.zig").Fn;
 const Vec = util.collections.Vec;
 const Cursor = math.Vec2D;
 const Size = math.Vec2D;
+const Array = util.collections.Array;
+const Arena = util.allocator.Arena;
 
 const PREFIX = " > ";
 
 pub const CommandLine = struct {
-    content: Vec(u8),
+    content: Array(u8),
     size: Size,
     cursor: u32,
     selection: u32,
     selection_active: bool,
+
     foreground_changes: *Vec(Change),
     background_changes: *Vec(Change),
 
@@ -25,10 +28,10 @@ pub const CommandLine = struct {
         size: Size,
         foreground_changes: *Vec(Change),
         background_changes: *Vec(Change),
-        allocator: Allocator,
+        arena: *Arena,
     ) !CommandLine {
         return CommandLine{
-            .content = try Vec(u8).init(size.x, allocator),
+            .content = Array(u8).init(size.x, arena),
             .foreground_changes = foreground_changes,
             .background_changes = background_changes,
             .cursor = @intCast(PREFIX.len),
@@ -46,13 +49,13 @@ pub const CommandLine = struct {
         const l: u32 = @intCast(PREFIX.len);
         const len: u32 = @intCast(string.len);
 
-        if (self.size.x <= len + self.content.len() + l) return error.Full;
-        try self.content.extend_insert(string, self.cursor - l);
+        if (self.size.x <= len + self.content.len + l) return error.Full;
+        self.content.extend_insert(string, self.cursor - l);
 
-        for (self.cursor - l..self.content.len()) |i| {
+        for (self.cursor - l..self.content.len) |i| {
             try self.foreground_changes.push(
                 Change.add_char(
-                    self.content.items[i],
+                    self.content.ptr[i],
                     @intCast(i + l),
                     self.size.y,
                 ),
@@ -166,11 +169,7 @@ pub const CommandLine = struct {
     }
 
     pub fn chars(self: *const CommandLine) []const u8 {
-        return self.content.elements();
-    }
-
-    pub fn deinit(self: *const CommandLine) void {
-        self.content.deinit();
+        return self.content.content();
     }
 
     pub fn commands() []const Fn {
@@ -203,7 +202,7 @@ fn next_char(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *CommandLine = @ptrCast(@alignCast(ptr));
     const len: u32 = @intCast(PREFIX.len);
 
-    if (self.cursor >= self.content.len() + len) return error.NoNextChar;
+    if (self.cursor >= self.content.len + len) return error.NoNextChar;
 
     try self.move_cursor(self.cursor + 1);
 }
@@ -212,9 +211,9 @@ fn command_end(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *CommandLine = @ptrCast(@alignCast(ptr));
     const len: u32 = @intCast(PREFIX.len);
 
-    if (self.cursor >= self.content.len() + len) return error.AlreadyAtEnd;
+    if (self.cursor >= self.content.len + len) return error.AlreadyAtEnd;
 
-    try self.move_cursor(self.content.len() + len);
+    try self.move_cursor(self.content.len + len);
 }
 
 fn command_start(ptr: *anyopaque, _: []const []const u8) !void {
@@ -237,7 +236,7 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
     const self: *CommandLine = @ptrCast(@alignCast(ptr));
     const len: u32 = @intCast(PREFIX.len);
 
-    const prev_len = self.content.len();
+    const prev_len = self.content.len;
     var boundary = math.sort(self.cursor, self.selection);
 
     boundary[0] -= len;
@@ -246,23 +245,21 @@ fn delete(ptr: *anyopaque, _: []const []const u8) !void {
     if (boundary[1] < prev_len) boundary[1] += 1;
 
     for (boundary[1]..prev_len) |i| {
-        self.content.put(
-            self.content.items[i],
-            boundary[0] + i - boundary[1],
-        );
+        self.content.ptr[boundary[0] + i - boundary[1]] =
+            self.content.ptr[i];
 
         try self.foreground_changes.push(
             Change.add_char(
-                self.content.items[i],
+                self.content.ptr[i],
                 @intCast(boundary[0] + len + i - boundary[1]),
                 self.size.y,
             ),
         );
     }
 
-    self.content.items.len -= boundary[1] - boundary[0];
+    self.content.len -= boundary[1] - boundary[0];
 
-    for (self.content.len()..prev_len) |i| {
+    for (self.content.len..prev_len) |i| {
         try self.foreground_changes.push(
             Change.remove(
                 @intCast(i + len),

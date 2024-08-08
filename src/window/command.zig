@@ -3,10 +3,22 @@ const util = @import("util");
 
 const HashSet = util.collections.HashSet;
 const Allocator = std.mem.Allocator;
+const Arena = util.allocator.Arena;
 
 pub const Fn = struct {
     string: []const u8,
     f: *const fn (*anyopaque, []const []const u8) anyerror!void,
+
+    pub fn init() Fn {
+        return .{
+            .string = "",
+            .f = undefined,
+        };
+    }
+
+    pub fn zero(self: *const Fn) bool {
+        return self.string.len == 0;
+    }
 
     pub fn hash(self: *const Fn) u32 {
         return util.hash(self.string);
@@ -19,6 +31,16 @@ pub const Fn = struct {
 
 const MultKey = struct {
     string: []const u8,
+
+    pub fn init() MultKey {
+        return .{
+            .string = "",
+        };
+    }
+
+    pub fn zero(self: *const MultKey) bool {
+        return self.string.len == 0;
+    }
 
     pub fn hash(self: *const MultKey) u32 {
         return util.hash(self.string);
@@ -40,35 +62,45 @@ pub const CommandHandler = struct {
     key_fn: HashSet(Fn),
     cmd_fn: HashSet(Fn),
     mult_key: HashSet(MultKey),
-    allocator: Allocator,
 
     pub fn init(
         comptime key_sub: []const Fn,
         comptime cmd_sub: []const Fn,
-        allocator: Allocator,
+        comptime mult_key: []const Fn,
+        arena: *Arena,
     ) !CommandHandler {
         var self: CommandHandler = undefined;
+        const sub_len = (cmd_sub.len + 1) / 2 * 3;
+        const key_len = (key_sub.len + 1 + mult_key.len) / 2 * 3;
+        const mult_key_len = (mult_key.len + 1) / 2 * 3;
+        const total_len = (sub_len + key_len) * @sizeOf(Fn) + mult_key_len * @sizeOf(MultKey);
 
-        self.allocator = allocator;
+        var fn_arena = Arena.init("Fn", arena.alloc(
+            u8,
+            total_len,
+        )[0..total_len]);
+
         self.cmd_fn = try HashSet(Fn).init(
-            (cmd_sub.len + 1) / 2 * 3,
-            allocator,
+            sub_len,
+            &fn_arena,
         );
 
         self.key_fn = try HashSet(Fn).init(
-            (key_sub.len + 1) / 2 * 3,
-            allocator,
+            key_len,
+            &fn_arena,
         );
 
         self.mult_key = try HashSet(MultKey).init(
-            (key_sub.len + 1),
-            allocator,
+            mult_key_len,
+            &fn_arena,
         );
 
-        for (key_sub) |key| {
+        for (cmd_sub) |cmd| try self.cmd_fn.push(cmd);
+        for (key_sub) |key| try self.key_fn.push(key);
+        for (mult_key) |key| {
+            var start: u32 = 0;
             try self.key_fn.push(key);
 
-            var start: u32 = 0;
             for (0..key.string.len) |i| {
                 if (key.string[i] == ' ') {
                     const new = MultKey{
@@ -81,8 +113,6 @@ pub const CommandHandler = struct {
                 }
             }
         }
-
-        for (cmd_sub) |cmd| try self.cmd_fn.push(cmd);
 
         return self;
     }
@@ -132,10 +162,5 @@ pub const CommandHandler = struct {
 
     pub fn change(self: *CommandHandler, ptr: *anyopaque) void {
         self.ptr = ptr;
-    }
-
-    pub fn deinit(self: *const CommandHandler) void {
-        self.cmd_fn.deinit();
-        self.key_fn.deinit();
     }
 };
